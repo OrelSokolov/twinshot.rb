@@ -10,7 +10,8 @@ languages: two folders of snapshots (screenshots, HTML, text) must match.
    or missing file is a failure.
 2. **Files**: every file is compared by its extension's adapter. No adapter —
    failure (no fallbacks).
-3. **Report**: a self-contained HTML gallery + `summary.json`.
+3. **Report**: a self-contained HTML gallery (`report_for_human.html`) +
+   a markdown report for LLM agents (`report_for_agent.md`) + `summary.json`.
 
 Adapters:
 
@@ -56,7 +57,8 @@ compared by the same adapters.
 Every group writes its report into its own folder:
 `<config dir>/twinshot-report/<group>/` — the default group reports into
 `twinshot-report/default/`. Each folder holds the same layout as before:
-`report.html`, `summary.json`, `diffs/`. Not configurable.
+`report_for_human.html`, `report_for_agent.md`, `summary.json`, `diffs/`.
+Not configurable.
 
 ## Commands
 
@@ -83,15 +85,26 @@ twinshot help [COMMAND]                      # help
 
 ## Report
 
-- grouped by folder, failures first, sticky file name;
-- substring search, filters all/failed/passed;
-- image modes: **side-by-side** (50/50), **slider** (overlay with a handle),
-  **blink** (oracle/current alternating);
-- **zones** — a purple overlay over images: the picture is split into 32×32 px
-  squares, a square's opacity grows with the share of differing pixels (`heat`
-  metadata in `summary.json`, a toolbar toggle);
-- inline text diffs (`+/-` lines);
-- `n`/`p` keys — navigate shots, `Esc` — reset search.
+Two files per group folder:
+
+- `report_for_human.html` — the visual report (opened in a browser after
+  `compare`):
+  - flat gallery ordered by folder (one card per file, no folder headings);
+  - substring search, filters all/failed/passed;
+  - image modes: **side-by-side** (50/50), **slider** (overlay with a handle),
+    **blink** (oracle/current alternating);
+  - **zones** — a purple overlay over images: the picture is split into 32×32 px
+    squares, a square's opacity grows with the share of differing pixels (`heat`
+    metadata in `summary.json`, a toolbar toggle);
+  - inline text diffs (`+/-` lines);
+  - `n`/`p` keys — navigate shots, `Esc` — reset search.
+- `report_for_agent.md` — the same results as markdown to feed to a model:
+  every failed file gets a section with its metadata (absolute oracle/current
+  paths, kind, detail, ratio, diff-image path) plus the divergence snippet as a
+  unified-style `diff` fence — the same line diffs the human report renders
+  inline (for `html` that is the canonicalized DOM line diff, so the snippet
+  shows what structurally differs, not raw source noise). Passed files are a
+  plain list at the bottom.
 
 ## Install and development
 

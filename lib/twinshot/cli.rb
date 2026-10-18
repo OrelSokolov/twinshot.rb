@@ -86,7 +86,7 @@ module Twinshot
         o.separator "Compares the oracle and current trees: structure first, then every"
         o.separator "file through a format adapter (png/html/txt/binary). Unknown files"
         o.separator "and structure mismatches are failures. Writes twinshot-report/"
-        o.separator "(report.html + summary.json + diffs/)."
+        o.separator "(report_for_human.html + report_for_agent.md + summary.json + diffs/)."
         o.separator ""
         o.separator "Exit status: 0 — all pass, 1 — differences found, 2 — config error."
         o.separator ""
@@ -136,10 +136,12 @@ module Twinshot
 
       config = Config.load(@config_path)
       progress = Progress.new(out: @out, quiet: @json)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       summary = Compare.new(config).run(jobs: @jobs, progress: progress)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
       Report.new(config, summary).write
       @out.puts JSON.pretty_generate(summary) if @json
-      progress.summary(summary, config.report_root)
+      progress.summary(summary, config.report_root, elapsed: elapsed)
       open_report(config)
       summary["failed"].zero? ? EXIT_OK : EXIT_DIFF
     end
@@ -152,7 +154,7 @@ module Twinshot
       should_open = @open.nil? ? !@json && @out.tty? : @open
       return unless should_open
 
-      Opener.open(File.join(config.report_dir, "report.html"))
+      Opener.open(File.join(config.report_dir, Config::HUMAN_REPORT))
     rescue Opener::Error => e
       @err.puts "twinshot: #{e.message}"
     end

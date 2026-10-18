@@ -81,6 +81,8 @@ module Twinshot
     DEFAULT_FILENAME = "twinshot.yml"
     DEFAULT_MAX_DIFF_RATIO = 0.002
     REPORT_DIRNAME = "twinshot-report"
+    HUMAN_REPORT = "report_for_human.html"
+    AGENT_REPORT = "report_for_agent.md"
     DEFAULT_GROUP = "default"
     SIDES = %w[oracle current].freeze
 

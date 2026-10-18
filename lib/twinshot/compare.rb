@@ -40,7 +40,7 @@ module Twinshot
           "total" => group_results.size,
           "passed" => group_results.count { |r| r["status"] == "pass" },
           "failed" => group_results.count { |r| r["status"] == "fail" },
-          "report" => File.join(Config::REPORT_DIRNAME, group.name, "report.html")
+          "report" => File.join(Config::REPORT_DIRNAME, group.name, Config::HUMAN_REPORT)
         }
       end
       summarize(results, group_stats)

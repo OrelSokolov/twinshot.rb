@@ -21,7 +21,8 @@ png:
 ```
 
 Отчёт всегда пишется в `<dirname(config)>/twinshot-report/`
-(`report.html` + `summary.json` + `diffs/*`). Не настраивается.
+(`report_for_human.html` + `report_for_agent.md` + `summary.json` +
+`diffs/*`). Не настраивается.
 
 ## Структура кода
 

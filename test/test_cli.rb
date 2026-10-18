@@ -44,6 +44,7 @@ class TestCli < Minitest::Test
       identical = make_trees(tmp, diff: false)
       assert_equal 0, run_cli("-c", config_path(tmp, identical), "compare")
       assert_includes @out.string, "1/1 passed"
+      assert_match(/time: \d+\.\d+s/, @out.string)
 
       differing = make_trees(tmp, diff: true)
       assert_equal 1, run_cli("-c", config_path(tmp, differing), "compare", "--json")
@@ -55,8 +56,14 @@ class TestCli < Minitest::Test
     Dir.mktmpdir do |tmp|
       make_trees(tmp, diff: true)
       run_cli("-c", config_path(tmp, tmp), "compare")
-      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report.html"))
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report_for_agent.md"))
       assert File.exist?(File.join(tmp, "twinshot-report", "default", "summary.json"))
+      md = File.read(File.join(tmp, "twinshot-report", "default", "report_for_agent.md"))
+      assert_includes md, "### page.txt"
+      assert_includes md, "````diff"
+      assert_includes md, "-same"
+      assert_includes md, "+other"
     end
   end
 
@@ -72,7 +79,8 @@ class TestCli < Minitest::Test
       YAML
       assert_equal 0, run_cli("-c", config, "compare")
       %w[default dogs].each do |group|
-        assert File.exist?(File.join(tmp, "twinshot-report", group, "report.html")), group
+        assert File.exist?(File.join(tmp, "twinshot-report", group, "report_for_human.html")), group
+        assert File.exist?(File.join(tmp, "twinshot-report", group, "report_for_agent.md")), group
         assert File.exist?(File.join(tmp, "twinshot-report", group, "summary.json")), group
       end
       summary = JSON.parse(File.read(File.join(tmp, "twinshot-report", "default", "summary.json")))
@@ -91,11 +99,22 @@ class TestCli < Minitest::Test
         image.save(File.join(dir, "shot.png"))
       end
       run_cli("-c", config_path(tmp, tmp), "compare")
-      html = File.read(File.join(tmp, "twinshot-report", "default", "report.html"))
+      html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
       assert_includes html, %(<div class="heat")
       assert_includes html, "rgba(160,32,240,"
       assert_includes html, %(data-h="on")
       assert_includes File.read(File.join(tmp, "twinshot-report", "default", "summary.json")), '"heat"'
+    end
+  end
+
+  def test_compare_report_hides_overlay_img_in_side_mode
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      run_cli("-c", config_path(tmp, tmp), "compare")
+      html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+      # .pair .overlay must outrank .pair img{display:block} (which rendered the
+      # overlay as a duplicate image stacked below the oracle shot).
+      assert_includes html, ".pair .overlay{display:none}"
     end
   end
 
@@ -106,7 +125,7 @@ class TestCli < Minitest::Test
       Twinshot::Opener.stub(:open, ->(path) { opened << path }) do
         assert_equal 0, run_cli("-c", config_path(tmp, tmp), "compare", "--open")
       end
-      assert_equal [File.join(tmp, "twinshot-report", "default", "report.html")], opened
+      assert_equal [File.join(tmp, "twinshot-report", "default", "report_for_human.html")], opened
       assert_empty @err.string
     end
   end

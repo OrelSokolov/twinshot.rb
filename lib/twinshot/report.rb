@@ -6,13 +6,25 @@ require "json"
 require "pathname"
 
 module Twinshot
-  # Self-contained HTML report: 1:1 gallery grouped by directory, with search,
-  # status filters, image compare modes (side-by-side / slider / blink) and
-  # per-side copy buttons (absolute snapshot path — handy to paste into an
-  # agent). CSS and JS are inlined; screenshots referenced by relative paths.
-  # White-blue high-contrast theme with a thick divider between the pair.
+  # Two reports per group folder:
+  #
+  # - report_for_human.html — self-contained HTML gallery: 1:1 gallery (flat,
+  #   ordered by directory), with search, status filters (failures shown by
+  #   default), image compare modes (side-by-side / slider / blink) and
+  #   per-side copy buttons (absolute snapshot path — handy to paste into an
+  #   agent). CSS and JS are inlined; screenshots referenced by relative paths.
+    #   Plain Bootstrap-style theme: light neutral page, white sticky navbar,
+    #   standard form control / button groups / badges, cards on a centered
+    #   container — no gradients, no glassmorphism, one accent color. The
+    #   page background is a muted slate (#5d5d6a).
+  # - report_for_agent.md — markdown for feeding to LLM agents: per-file
+  #   metadata (paths, kind, detail, ratio) plus the divergence code snippets
+  #   as unified-style ```diff fences — the same line diffs the human report
+  #   renders inline (for html that's the canonicalized DOM line diff).
+  #
   # Every group gets its own folder twinshot-report/<name>/ with a full
-  # report.html + summary.json + diffs/ set for its results only.
+  # report_for_human.html + report_for_agent.md + summary.json + diffs/ set
+  # for its results only.
   class Report
     def initialize(config, summary)
       @config = config
@@ -42,7 +54,8 @@ module Twinshot
       @oracle_prefix = Pathname.new(group.oracle_path).relative_path_from(report).to_s
       @current_prefix = Pathname.new(group.current_path).relative_path_from(report).to_s
       FileUtils.mkdir_p(@report_dir)
-      File.write(File.join(@report_dir, "report.html"), render(group, summary))
+      File.write(File.join(@report_dir, Config::HUMAN_REPORT), render(group, summary))
+      File.write(File.join(@report_dir, Config::AGENT_REPORT), agent_markdown(summary))
       File.write(File.join(@report_dir, "summary.json"), JSON.pretty_generate(summary) + "\n")
     end
 
@@ -51,18 +64,22 @@ module Twinshot
     end
 
     def render(group, summary)
+      # Failures are what the report is opened for; a fully green report
+      # falls back to "all" so the gallery isn't empty on open.
+      default_filter = summary["failed"].to_i > 0 ? "fail" : "all"
+      active = ->(f) { %( class="active") if f == default_filter }
       <<~HTML
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
         <title>twinshot — 1:1 parity · #{esc group.name}</title>
         <style>#{CSS}</style></head>
-        <body data-filter="all" data-mode="side" data-heat="on">
+        <body data-filter="#{default_filter}" data-mode="side" data-heat="on">
         <header id="topbar">
           <b>twinshot</b>
           <span id="gname">#{esc group.name}</span>
           <span id="stats"><span class="ok">#{summary['passed']}/#{summary['total']} pass</span> <span class="bad">#{summary['failed']} fail</span></span>
           <input id="q" type="search" placeholder="поиск по имени…">
           <span class="seg">
-            <button type="button" data-f="all" class="active">все</button><button type="button" data-f="fail">провалы</button><button type="button" data-f="pass">ок</button>
+            <button type="button" data-f="all"#{active.call('all')}>все</button><button type="button" data-f="fail"#{active.call('fail')}>провалы</button><button type="button" data-f="pass"#{active.call('pass')}>ок</button>
           </span>
           <span class="seg">
             <button type="button" data-m="side" class="active">рядом</button><button type="button" data-m="slider">слайдер</button><button type="button" data-m="blink">мигание</button>
@@ -83,14 +100,11 @@ module Twinshot
         .sort.map { |dir, results| section(dir, results) }.join
     end
 
+    # Sections stay as invisible containers (no headings: the dir name already
+    # appears in every shot's h3, extra titles only duplicated it) so filtering
+    # can still hide empty directories as a unit.
     def section(dir, results)
-      title = dir == "." ? "(root)" : dir
-      <<~HTML
-        <section class="group" data-dir="#{esc dir}">
-          <h2>#{esc title}<span class="gcount">#{results.size}</span></h2>
-          #{results.map { |r| shot(r) }.join}
-        </section>
-      HTML
+      %(<section class="group" data-dir="#{esc dir}">#{results.map { |r| shot(r) }.join}</section>)
     end
 
     def shot(result)
@@ -169,8 +183,9 @@ module Twinshot
     end
 
     # Purple overlay marking divergence zones: one positioned <i> per heat
-    # cell, opacity scaled by the cell's intensity. Percent-based sizing
-    # keeps it glued to the image in every display mode.
+    # cell, opacity scaled by the cell's intensity; the report CSS pulses
+    # it twice a second (smooth ease-in-out) so differences catch the eye.
+    # Percent-based sizing keeps it glued to the image in every display mode.
     def heat_layer(heat)
       return "" unless heat
 
@@ -194,57 +209,130 @@ module Twinshot
       HTML
     end
 
+    # Markdown report aimed at LLM agents: every failed file gets a section
+    # with its metadata (absolute per-side paths, kind, detail, ratio) and,
+    # where the adapter produced one, the line diff in a ```diff fence —
+    # the same diff the human report shows inline. Passed files are a plain
+    # list: no diffs to analyze, just proof they matched.
+    def agent_markdown(summary)
+      failed = summary["results"].select { |r| r["status"] == "fail" }
+      passed = summary["results"].select { |r| r["status"] == "pass" }
+      lines = [
+        "# twinshot — 1:1 parity · group #{@group.name}", "",
+        "- oracle: #{@group.oracle_path}",
+        "- current: #{@group.current_path}",
+        "- total: #{summary['total']} · passed: #{summary['passed']} · failed: #{summary['failed']}",
+        "",
+        "## Failures (#{failed.size})", ""
+      ]
+      failed.each { |r| lines.concat(agent_section(r)) }
+      lines.concat(["## Passed (#{passed.size})", ""])
+      passed.each { |r| lines << "- `#{r['rel']}` — #{r['kind']}: #{r['detail']}" }
+      lines << ""
+      lines.join("\n")
+    end
+
+    def agent_section(result)
+      rel = result["rel"]
+      lines = ["### #{rel}", "",
+               "- kind: #{result['kind']}",
+               "- status: #{result['status']}",
+               "- detail: #{result['detail']}"]
+      if result["kind"] == "structure"
+        side = result["detail"].start_with?("missing") ? "oracle" : "current"
+        root = side == "oracle" ? @group.oracle_path : @group.current_path
+        lines << "- #{side}: #{File.join(root, rel)}"
+      else
+        lines << "- oracle: #{File.join(@group.oracle_path, rel)}"
+        lines << "- current: #{File.join(@group.current_path, rel)}"
+      end
+      lines << "- ratio: #{format('%.4f', result['ratio'])}" if result["ratio"]
+      lines << "- diff image: #{result['diff_image']}" if result["diff_image"]
+      lines << ""
+      if result["diff"]
+        lines << "````diff"
+        result["diff"].each { |e| lines << agent_diff_line(e) }
+        lines << "````"
+        lines << ""
+      end
+      lines
+    end
+
+    # Unified-diff prefixes; a four-backtick fence so file content containing
+    # triple backticks cannot break out of the block.
+    def agent_diff_line(entry)
+      case entry["t"]
+      when "same" then " #{entry['text']}"
+      when "del" then "-#{entry['text']}"
+      when "add" then "+#{entry['text']}"
+      else entry["text"].to_s
+      end
+    end
+
+    # Light Bootstrap-style theme; only the page background is a custom
+    # muted slate. The heat overlay pulses twice a second (see heat_layer).
     CSS = <<~'CSS'
-      body{font:14px system-ui,sans-serif;margin:0;background:#d9e2ec}
-      #topbar{position:sticky;top:0;z-index:30;display:flex;gap:14px;align-items:center;background:linear-gradient(135deg,#ffffff 0%,#cfe6ff 100%);border-bottom:3px solid #1976d2;padding:10px 14px;white-space:nowrap;box-shadow:0 2px 6px rgba(13,71,161,.25)}
-      #topbar b{font-size:15px;color:#0d47a1}
-      #gname{font:600 12px ui-monospace,monospace;color:#0d47a1;background:#e3f2fd;border:1px solid #64b5f6;padding:1px 6px;border-radius:3px}
-      #q{width:220px;padding:3px 8px;border:1px solid #64b5f6;border-radius:3px;background:#fff}
-      #stats .ok{color:#fff;background:#2e7d32;padding:1px 6px;border-radius:3px}
-      #stats .bad{color:#fff;background:#d32f2f;padding:1px 6px;border-radius:3px}
-      .seg button{border:1px solid #64b5f6;background:#fff;color:#0d47a1;padding:3px 10px;cursor:pointer;font-weight:600}
-      .seg button.active{background:linear-gradient(135deg,#1976d2,#42a5f5);color:#fff;border-color:#1976d2}
-      .hint{color:#456;font-size:12px}
-      .group{margin:14px 0 0}
-      .group h2{position:sticky;top:43px;z-index:20;margin:0;padding:6px 14px;font:600 13px ui-monospace,monospace;color:#0d47a1;background:linear-gradient(180deg,#e3f2fd,#bbdefb);border-top:2px solid #1976d2;border-bottom:1px solid #90caf9}
-      .gcount{float:right;color:#28405e;font-weight:700}
-      .shot{background:#fff;margin:0 0 12px;border:2px solid #90caf9;border-radius:6px}
-      .shot.fail{border-color:#e53935}
-      .shot h3{position:sticky;top:71px;z-index:10;margin:0;padding:6px 14px;font:600 13px ui-monospace,monospace;background:linear-gradient(180deg,#ffffff,#f0f7ff);border-bottom:2px solid #bbdefb}
-      .shot.fail h3{background:linear-gradient(180deg,#fff5f5,#ffe3e3);border-bottom-color:#ef9a9a}
-      .shot .badge{font:600 10px system-ui;color:#0d47a1;border:1px solid #64b5f6;padding:0 4px;margin-left:8px;vertical-align:1px;border-radius:3px;background:#e3f2fd}
-      .shot .detail{color:#555;font-weight:400}
-      .shot a{color:#0d47a1}
-      .copy{font:600 10px system-ui;color:#0d47a1;background:#e3f2fd;border:1px solid #64b5f6;border-radius:3px;padding:1px 6px;cursor:pointer;margin-left:6px;vertical-align:1px}
-      .copy:hover{background:#bbdefb}
-      .copy.done{background:#2e7d32;border-color:#2e7d32;color:#fff}
+      :root{--blue:#0d6efd;--red:#dc3545;--green:#198754;--gray-100:#f8f9fa;--gray-200:#e9ecef;--gray-300:#dee2e6;--gray-600:#6c757d;--gray-900:#212529}
+      body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;color:var(--gray-900);background:#5d5d6a;padding-bottom:48px}
+      a{color:var(--blue)}
+      #topbar{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 16px;background:#fff;border-bottom:1px solid var(--gray-300)}
+      #topbar b{font-size:15px;color:var(--blue)}
+      #gname{font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-600);background:var(--gray-100);border:1px solid var(--gray-300);padding:2px 8px;border-radius:.375rem}
+      #stats .ok{color:#fff;background:var(--green);padding:2px 8px;border-radius:.375rem;font-weight:600}
+      #stats .bad{color:#fff;background:var(--red);padding:2px 8px;border-radius:.375rem;font-weight:600}
+      #q{width:200px;padding:4px 10px;border:1px solid var(--gray-300);border-radius:.375rem;color:var(--gray-900);font:inherit}
+      #q:focus{outline:0;border-color:#86b7fe;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+      .seg{display:inline-flex}
+      .seg button{border:1px solid var(--gray-300);background:#fff;color:var(--gray-900);padding:4px 12px;cursor:pointer;font:inherit;font-weight:500;line-height:1.4}
+      .seg button:hover{background:var(--gray-100)}
+      .seg button:focus-visible{outline:0;position:relative;z-index:1;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+      .seg button+button{margin-left:-1px}
+      .seg button:first-child{border-radius:.375rem 0 0 .375rem}
+      .seg button:last-child{border-radius:0 .375rem .375rem 0}
+      .seg button.active{background:var(--blue);border-color:var(--blue);color:#fff}
+      .hint{margin-left:auto;color:var(--gray-600);font-size:12px}
+      .group{max-width:1200px;margin:0 auto;padding:24px 16px 0}
+      .shot{background:#fff;border:1px solid var(--gray-300);border-radius:.5rem;margin:0 0 24px;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+      .shot.fail{border-color:#f1aeb5}
+      .shot h3{margin:0;padding:8px 12px;font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-900);background:var(--gray-100);border-bottom:1px solid var(--gray-300);border-radius:.5rem .5rem 0 0;word-break:break-all}
+      .shot.fail h3{background:#f8d7da;border-bottom-color:#f1aeb5;color:#842029}
+      .shot>*:last-child{border-radius:0 0 .5rem .5rem;overflow:hidden}
+      .shot .badge{font:600 10px system-ui,sans-serif;color:#495057;border:1px solid var(--gray-300);background:#fff;padding:1px 6px;margin-left:8px;vertical-align:1px;border-radius:.375rem}
+      .shot .detail{font-weight:400;color:var(--gray-600)}
+      .shot.fail .detail{color:#842029}
+      .shot h3 a{color:var(--blue)}
+      .copy{font:600 11px system-ui,sans-serif;color:#495057;background:#fff;border:1px solid var(--gray-300);border-radius:.375rem;padding:1px 7px;cursor:pointer;margin-left:6px;vertical-align:1px}
+      .copy:hover{background:var(--gray-100)}
+      .copy.done{background:var(--green);border-color:var(--green);color:#fff}
       .pair{display:flex;--cut:50%}
       body[data-mode=slider] .pair,body[data-mode=blink] .pair{display:block;position:relative}
       .pair figure{flex:1 1 50%;min-width:0;margin:0}
-      .pair figure+figure{border-left:5px solid #1976d2}
-      .pair figcaption{padding:5px 10px;font:700 12px ui-monospace,monospace;color:#0d47a1;background:linear-gradient(180deg,#f5faff,#dbeeff);border-bottom:2px solid #90caf9}
-      .cbadge{float:right;font:700 10px system-ui;padding:1px 6px;border-radius:3px}
-      .cbadge.ok{background:#c8e6c9;color:#1b5e20}
-      .cbadge.warn{background:#ffcdd2;color:#b71c1c}
+      .pair figure+figure{border-left:3px solid var(--gray-300)}
+      .pair figcaption{padding:5px 10px;font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-600);background:var(--gray-100);border-bottom:1px solid var(--gray-300)}
+      .cbadge{float:right;font:700 10px system-ui,sans-serif;padding:1px 7px;border-radius:.375rem}
+      .cbadge.ok{background:#d1e7dd;color:#0f5132}
+      .cbadge.warn{background:#f8d7da;color:#842029}
       .imgwrap{position:relative}
       .pair img{display:block;width:100%;height:auto}
-      .overlay{display:none}
+      .pair .overlay{display:none}
       body[data-mode=slider] .overlay,body[data-mode=blink] .overlay{display:block;position:absolute;top:0;left:0;width:100%;height:auto}
       body[data-mode=slider] .overlay{clip-path:inset(0 calc(100% - var(--cut)) 0 0)}
       body[data-mode=blink] .overlay{animation:blink 1s steps(1) infinite}
       body[data-mode=slider] .side-b,body[data-mode=blink] .side-b{display:none}
       .heat{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-      .heat i{position:absolute;display:block}
+      .heat i{position:absolute;display:block;animation:heat-pulse .5s ease-in-out infinite}
       body[data-heat=off] .heat{display:none}
+      @media (prefers-reduced-motion: reduce){.heat i{animation:none}}
       @keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
-      .slider{display:none;width:100%}
+      @keyframes heat-pulse{0%,100%{opacity:1}50%{opacity:.15}}
+      .slider{display:none;width:100%;accent-color:var(--blue)}
       body[data-mode=slider] .slider{display:block}
-      pre.diff{margin:0;padding:8px 0;font:12px/1.45 ui-monospace,monospace;overflow:auto;max-height:480px;background:#fbfdff}
+      pre.diff{margin:0;padding:8px 0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;max-height:480px;background:#fff}
       pre.diff span{display:block;padding:0 10px;white-space:pre}
-      pre.diff .del{background:#ffd7d5}
-      pre.diff .add{background:#d3f8d0}
-      pre.diff .same{color:#777}
-      .note{padding:6px 14px;color:#456;border-top:1px solid #e3f2fd}
+      pre.diff .del{background:#f8d7da;color:#842029}
+      pre.diff .add{background:#d1e7dd;color:#0f5132}
+      pre.diff .same{color:var(--gray-600)}
+      .note{padding:6px 12px;color:var(--gray-600);border-top:1px solid var(--gray-300)}
     CSS
 
     JS = <<~'JS'
@@ -265,8 +353,6 @@ module Twinshot
               if (visible) shown++;
             });
             g.hidden = shown === 0;
-            var count = g.querySelector('.gcount');
-            if (count) count.textContent = shown + '/' + shots.length;
           });
         }
 

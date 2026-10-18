@@ -26,9 +26,16 @@ class TestCompare < Minitest::Test
       assert_equal 4, summary["failed"]
 
       assert File.exist?(File.join(config.report_dir, "diffs", "a", "two.png.diff.png"))
-      report_html = File.read(File.join(config.report_dir, "report.html"))
+      report_html = File.read(File.join(config.report_dir, Twinshot::Config::HUMAN_REPORT))
       assert_includes report_html, %(data-name="a/two.png")
       assert_includes report_html, %(data-name="e/only-current.txt")
+      agent_md = File.read(File.join(config.report_dir, Twinshot::Config::AGENT_REPORT))
+      assert_includes agent_md, "### a/two.png"
+      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, 'a/two.png')}"
+      assert_includes agent_md, "- current: #{File.join(config.current_path, 'a/two.png')}"
+      assert_includes agent_md, "### d/only-oracle.txt"
+      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, 'd/only-oracle.txt')}"
+      assert_includes agent_md, "## Passed (2)"
       summary_json = JSON.parse(File.read(File.join(config.report_dir, "summary.json")))
       assert_equal summary["total"], summary_json["total"]
     end
@@ -68,12 +75,18 @@ class TestCompare < Minitest::Test
 
       default_dir = File.join(tmp, "twinshot-report", "default")
       dogs_dir = File.join(tmp, "twinshot-report", "dogs")
-      assert File.exist?(File.join(default_dir, "report.html"))
+      assert File.exist?(File.join(default_dir, Twinshot::Config::HUMAN_REPORT))
       assert File.exist?(File.join(default_dir, "diffs", "a", "two.png.diff.png"))
-      dogs_html = File.read(File.join(dogs_dir, "report.html"))
+      dogs_html = File.read(File.join(dogs_dir, Twinshot::Config::HUMAN_REPORT))
       assert_includes dogs_html, %(data-name="bark.txt")
       assert_includes dogs_html, "dogs"
       refute_includes dogs_html, %(data-name="a/one.txt")
+      dogs_md = File.read(File.join(dogs_dir, Twinshot::Config::AGENT_REPORT))
+      assert_includes dogs_md, "### bark.txt"
+      assert_includes dogs_md, "````diff"
+      assert_includes dogs_md, "-woof"
+      assert_includes dogs_md, "+meow"
+      refute_includes dogs_md, "a/one.txt"
       dogs_summary = JSON.parse(File.read(File.join(dogs_dir, "summary.json")))
       assert_equal 1, dogs_summary["total"]
       assert_equal "dogs", dogs_summary["results"].first["group"]

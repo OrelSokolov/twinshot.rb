@@ -39,7 +39,7 @@ module Twinshot
       @out.puts format("  [%3d/%-3d] %s %s — %s", @index, @total || "?", mark, rel, detail)
     end
 
-    def summary(summary, report_path)
+    def summary(summary, report_path, elapsed: nil)
       return unless @out
 
       @out.puts
@@ -52,6 +52,7 @@ module Twinshot
                           .map { |kind, rs| "#{kind}: #{rs.size}" }.join(", ")
         @out.puts paint("FAIL: #{summary['failed']}/#{summary['total']} failed (#{breakdown})", :red)
       end
+      @out.puts "time: #{format_duration(elapsed)}" if elapsed
       @out.puts "report: #{report_path}"
     end
 
@@ -61,6 +62,12 @@ module Twinshot
       return text.to_s unless @color
 
       text.to_s.public_send(meth)
+    end
+
+    def format_duration(seconds)
+      return format("%.2fs", seconds) if seconds < 60
+
+      format("%dm %.1fs", (seconds / 60).to_i, seconds % 60)
     end
 
     def display_path(path)
