@@ -20,6 +20,8 @@ class TestAdapters < Minitest::Test
     refute_nil Twinshot::Adapters.for("page.html")
     refute_nil Twinshot::Adapters.for("note.txt")
     refute_nil Twinshot::Adapters.for("blob.bin")
+    refute_nil Twinshot::Adapters.for("data.xml")
+    refute_nil Twinshot::Adapters.for("icon.svg")
     assert_nil Twinshot::Adapters.for("mystery.weird")
   end
 
@@ -64,6 +66,39 @@ class TestAdapters < Minitest::Test
     result = call(Twinshot::Adapters::Html, a, b)
     assert_equal "fail", result["status"]
     assert_predicate result["diff_lines"], :positive?
+  end
+
+  def test_xml_structure_identical_despite_whitespace_and_attr_order
+    a = %(<root id="r"><item n="1" id="x">one</item><item n="2">two  words</item></root>)
+    b = <<~XML
+      <root id="r">
+        <item id="x" n="1">one</item>
+        <item n="2">two words</item>
+      </root>
+    XML
+    assert_equal "pass", call(Twinshot::Adapters::Xml, a, b)["status"]
+  end
+
+  def test_xml_element_names_case_sensitive
+    a = "<Node><Leaf>one</Leaf></Node>"
+    b = "<node><Leaf>one</Leaf></node>"
+    result = call(Twinshot::Adapters::Xml, a, b)
+    assert_equal "fail", result["status"]
+    assert_equal "xml", result["kind"]
+    assert_predicate result["diff_lines"], :positive?
+  end
+
+  def test_svg_compared_as_structure
+    a = %(<svg xmlns="http://www.w3.org/2000/svg" width="10"><rect width="10" height="10" fill="red"/></svg>)
+    b = <<~SVG
+      <svg width="10" xmlns="http://www.w3.org/2000/svg">
+        <rect fill="red" height="10" width="10"/>
+      </svg>
+    SVG
+    assert_equal "pass", call(Twinshot::Adapters::Xml, a, b)["status"]
+
+    c = %(<svg xmlns="http://www.w3.org/2000/svg" width="10"><rect width="10" height="10" fill="blue"/></svg>)
+    assert_equal "fail", call(Twinshot::Adapters::Xml, a, c)["status"]
   end
 
   def test_png_bytes_equal_fast_path

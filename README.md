@@ -4,6 +4,27 @@ Save and compare screenshots of the functionality of other applications you
 want to copy end to end: a proven **oracle** tree against the **current**
 state, 1:1 parity between two folders of snapshots (screenshots, HTML, text).
 
+## Use cases
+
+- **Pixel-perfect design from mockups** — export every screen from Figma or a
+  sketch into `oracle/`, screenshot your implementation into `current/`, and
+  twinshot verifies it pixel-by-pixel: a tolerance (`png.max_diff_ratio`) for
+  antialiasing, a red diff image and a heat-zone overlay showing exactly where
+  you drifted. "Matches the design" stops being an opinion.
+- **Clean-room reimplementation** — rebuilding an app on a new stack
+  (the gem's origin: a Rails app rewritten in crails): snapshot both versions
+  and drive to 1:1 parity, screen by screen.
+- **Upgrade/refactor safety net** — before a framework or Ruby major upgrade,
+  snapshot pages before and after; zero diff proves the UI didn't move.
+- **AI agent feedback loop** — an agent implements, `twinshot compare` writes
+  `report_for_agent.md` designed to be fed back to the model; exit codes
+  fit CI and `git bisect run`.
+- **Golden-master testing** — not just pixels: rendered HTML compared by
+  canonicalized DOM structure, JSON/CSV/logs by line diff — catch structural
+  regressions with no flaky selectors.
+- **Cross-browser parity** — the same pages screenshotted in different
+  browsers/OSes, compared as trees.
+
 ## How it works
 
 1. **Structure**: the `current` file tree must match `oracle` 1:1. An extra
@@ -19,6 +40,7 @@ Adapters:
 |-------|-----------------------------------------------------------------------|
 | `png` | bytes fast-path → pixel-by-pixel; threshold `png.max_diff_ratio`; diff image (red) + purple heat-zone overlay |
 | `html`| by DOM structure: canonicalization (nokogiri: no comments, whitespace collapsed, attributes sorted) → line diff |
+| `xml` | by structure like html, via the XML parser (case-sensitive names): canonicalization → line diff (`xml`, `svg`) |
 | `txt` | line diff (`txt`, `md`, `log`, `json`, `csv`)                          |
 | `bin` | byte-wise SHA-256 (`bin`, `dat`)                                       |
 
