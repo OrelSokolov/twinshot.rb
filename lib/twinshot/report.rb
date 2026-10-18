@@ -184,8 +184,8 @@ module Twinshot
 
     # Purple overlay marking divergence zones: one positioned <i> per heat
     # cell, all in a single flat tone (no per-cell intensity scaling) so
-    # the zones read as one uniform layer; the report CSS pulses it twice
-    # a second (smooth ease-in-out) so differences catch the eye — except
+    # the zones read as one uniform layer; the report CSS pulses it every
+    # two seconds (smooth ease-in-out) so differences catch the eye — except
     # in blink mode, where the compare image itself flashes and a pulsing
     # layer would only distract. Percent-based sizing keeps it glued to
     # the image in every display mode.
@@ -327,7 +327,7 @@ module Twinshot
       body[data-filter=fail][data-mode=blink] .overlay{animation-duration:2s}
       body[data-mode=slider] .side-b,body[data-mode=blink] .side-b{display:none}
       .heat{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-      .heat i{position:absolute;display:block;animation:heat-pulse .5s ease-in-out infinite}
+      .heat i{position:absolute;display:block;animation:heat-pulse 2s ease-in-out infinite}
       body[data-mode=blink] .heat i{animation:none}
       body[data-heat=off] .heat{display:none}
       @media (prefers-reduced-motion: reduce){.heat i{animation:none}}
