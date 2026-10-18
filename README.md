@@ -1,39 +1,72 @@
 # Twinshot
 
-TODO: Delete this and the text below, and describe your gem
+1:1-парити двух деревьев артефактов: проверенный **оракул** против **текущего**
+состояния. Заточен под переписывание приложений один-в-один на разных языках:
+две папки со снапшотами (скриншоты, HTML, текст) обязаны совпасть.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/twinshot`. To experiment with that code, run `bin/console` for an interactive prompt.
+## Как это работает
 
-## Installation
+1. **Структура**: дерево файлов `current` должно совпадать с `oracle` 1:1.
+   Лишний или недостающий файл — фейл.
+2. **Файлы**: каждый файл сравнивается адаптером по расширению.
+   Нет адаптера — фейл (никаких фолбэков).
+3. **Отчёт**: самодостаточный HTML с 1:1-галереей + `summary.json`.
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Адаптеры:
 
-Install the gem and add to the application's Gemfile by executing:
+| Тип   | Как сравнивает                                                        |
+|-------|-----------------------------------------------------------------------|
+| `png` | байты fast-path → попиксельно; порог `png.max_diff_ratio`; diff-картинка (красным) |
+| `html`| по структуре DOM: канонизация (nokogiri: без комментариев, пробелы схлопнуты, атрибуты отсортированы) → построчный дифф |
+| `txt` | построчный дифф (`txt`, `md`, `log`, `json`, `csv`)                   |
+| `bin` | побайтово SHA-256 (`bin`, `dat`)                                      |
 
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+## Конфиг — `twinshot.yml`
+
+```yaml
+oracle:
+  path: artifacts/rails
+  generate: bin/record            # опционально
+
+current:
+  path: artifacts/crails
+  generate: bin/record --crails   # опционально
+
+png:
+  max_diff_ratio: 0.002           # опционально, дефолт 0.002
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+Отчёт всегда пишется в `<папка конфига>/twinshot-report/`
+(`report.html`, `summary.json`, `diffs/`). Не настраивается.
 
-```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+## Команды
+
+```
+twinshot compare [-c PATH] [-j N] [--json]   # сравнить и написать отчёт
+twinshot generate oracle|current             # запустить generate-команду стороны
+twinshot help [COMMAND]                      # справка
 ```
 
-## Usage
+- `compare` в хорошем случае не требует генерации — берёт две папки как есть.
+- `-j N` — пул воркеров (форки, дефолт — число ядер, максимум 8): структура
+  проверяется синхронно, файлы — параллельно.
+- Exit-коды: `0` — всё сошлось, `1` — есть расхождения (годится для
+  `git bisect run` и CI), `2` — ошибка конфига/usage.
 
-TODO: Write usage instructions here
+## Отчёт
 
-## Development
+- группы по папкам, провалы первыми, sticky-имя файла;
+- поиск по подстроке, фильтры все/провалы/ок;
+- режимы картинок: **рядом** (50/50), **слайдер** (наложение с бегунком),
+  **мигание** (оракул/текущее чередуются);
+- текстовые диффы инлайном (`+/-` строки);
+- клавиши `n`/`p` — навигация по шотам, `Esc` — сброс поиска.
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+## Установка и разработка
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+```sh
+bundle exec rake test && bundle exec rake build   # pkg/twinshot-X.Y.Z.gem
+```
 
-## Contributing
-
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/twinshot.
-
-## License
-
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
+Ruby >= 3.2 (разрабатывается на 4.0). Зависимости: `chunky_png`, `diff-lcs`,
+`nokogiri`.

@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "1:1 artifact parity: compare two directory trees (oracle vs current) file by file via format adapters"
   spec.description = "Compares a verified oracle tree against a current tree: structure check first, then per-file similarity through adapters (html by structure, txt by lines, png by pixels, binaries by bytes). Any unknown file is a failure."
-  spec.homepage = "https://github.com/orelcokolov/twinshot"
+  spec.homepage = "https://github.com/OrelSokolov/twinshot.rb"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
   spec.metadata["homepage_uri"] = spec.homepage
@@ -37,6 +37,10 @@ Gem::Specification.new do |spec|
 
   # Uncomment to register a new dependency of your gem
   # spec.add_dependency "example-gem", "~> 1.0"
+
+  spec.add_dependency "chunky_png", "~> 1.4"
+  spec.add_dependency "diff-lcs", "~> 2.0"
+  spec.add_dependency "nokogiri", "~> 1.16"
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://guides.rubygems.org/make-your-own-gem/
