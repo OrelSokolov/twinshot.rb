@@ -112,8 +112,8 @@ Two files per group folder:
 bundle exec rake test && bundle exec rake build   # pkg/twinshot-X.Y.Z.gem
 ```
 
-Ruby >= 3.2 (developed on 4.0). Dependencies: `chunky_png`, `colorize`,
-`diff-lcs`, `nokogiri`.
+Ruby >= 3.2 (developed on 4.0). Dependencies: `ruby-vips` (native `libvips`),
+`colorize`, `diff-lcs`, `nokogiri`.
 
 A run prints live progress: a banner, a colored per-file verdict (✓/✗) in
 worker arrival order, and a final stats block by type. Colors on a tty only;

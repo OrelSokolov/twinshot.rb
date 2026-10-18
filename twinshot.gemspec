@@ -38,10 +38,10 @@ Gem::Specification.new do |spec|
   # Uncomment to register a new dependency of your gem
   # spec.add_dependency "example-gem", "~> 1.0"
 
-  spec.add_dependency "chunky_png", "~> 1.4"
   spec.add_dependency "colorize", "~> 1.1"
   spec.add_dependency "diff-lcs", "~> 2.0"
   spec.add_dependency "nokogiri", "~> 1.16"
+  spec.add_dependency "ruby-vips", "~> 2.2"
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://guides.rubygems.org/make-your-own-gem/

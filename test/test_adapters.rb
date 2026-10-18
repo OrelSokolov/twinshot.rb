@@ -3,8 +3,7 @@
 require "test_helper"
 require "tmpdir"
 require "fileutils"
-require "stringio"
-require "chunky_png"
+require "vips"
 
 class TestAdapters < Minitest::Test
   def setup
@@ -74,7 +73,7 @@ class TestAdapters < Minitest::Test
 
   def test_png_pixel_diff_and_threshold
     a = make_png("red")
-    b = make_png_with_pixel("red", 1, 0, ChunkyPNG::Color.rgb(0, 255, 0))
+    b = make_png_with_pixel("red", 1, 0, [0, 255, 0])
     result = call(Twinshot::Adapters::Png, a, b)
     assert_equal "fail", result["status"] # ctx threshold is 0.0
     assert_equal 0.25, result["ratio"]
@@ -95,24 +94,24 @@ class TestAdapters < Minitest::Test
 
   def test_png_heat_grid
     a = make_png("red")
-    b = make_png_with_pixel("red", 1, 0, ChunkyPNG::Color.rgb(0, 255, 0))
+    b = make_png_with_pixel("red", 1, 0, [0, 255, 0])
     result = call(Twinshot::Adapters::Png, a, b)
     assert_equal({ "cell" => Twinshot::Adapters::Png::HEAT_CELL, "w" => 2, "h" => 2,
                    "cells" => [[0, 0, 0.25]] }, result["heat"])
   end
 
   def test_png_heat_edge_cell_uses_actual_area
-    a = ChunkyPNG::Image.new(40, 40, ChunkyPNG::Color.rgb(255, 0, 0))
-    b = ChunkyPNG::Image.new(40, 40, ChunkyPNG::Color.rgb(255, 0, 0))
-    3.times { |i| b[33 + i, 1] = ChunkyPNG::Color.rgb(0, 255, 0) }
-    result = call(Twinshot::Adapters::Png, png_bytes(a), png_bytes(b))
+    a = solid_png(40, 40)
+    b = solid_png(40, 40)
+    3.times { |i| b = draw_pixel(b, 33 + i, 1, [0, 255, 0]) }
+    result = call(Twinshot::Adapters::Png, a, b)
     # edge column is 8px wide (40 - 32), so the cell area is 8*32, not 32*32
     assert_equal [[1, 0, 0.01]], result["heat"]["cells"]
   end
 
   def test_png_heat_present_on_pass_but_no_diff_image
     a = make_png("red")
-    b = make_png_with_pixel("red", 1, 0, ChunkyPNG::Color.rgb(0, 255, 0))
+    b = make_png_with_pixel("red", 1, 0, [0, 255, 0])
     lenient = Twinshot::Adapters::Ctx.new(max_diff_ratio: 0.5, report_dir: @ctx.report_dir)
     result = Twinshot::Adapters::Png.call("a.png", write_file("a.png", a), write_file("b.png", b), lenient)
     assert_equal "pass", result["status"]
@@ -139,17 +138,18 @@ class TestAdapters < Minitest::Test
 
   def make_png(color, width: 2, height: 2)
     rgb = { "red" => [255, 0, 0] }.fetch(color)
-    image = ChunkyPNG::Image.new(width, height, ChunkyPNG::Color.rgb(*rgb))
-    StringIO.open { |io| image.write(io); io.string }
+    Vips::Image.black(width, height, bands: 3).add(rgb).pngsave_buffer
   end
 
   def make_png_with_pixel(color, x, y, pixel)
-    image = ChunkyPNG::Image.new(2, 2, ChunkyPNG::Color.rgb(*{ "red" => [255, 0, 0] }.fetch(color)))
-    image[x, y] = pixel
-    StringIO.open { |io| image.write(io); io.string }
+    draw_pixel(make_png(color), x, y, pixel)
   end
 
-  def png_bytes(image)
-    StringIO.open { |io| image.write(io); io.string }
+  def solid_png(width, height)
+    Vips::Image.black(width, height, bands: 3).add([255, 0, 0]).pngsave_buffer
+  end
+
+  def draw_pixel(png, x, y, color)
+    Vips::Image.new_from_buffer(png, "").draw_rect(color, x, y, 1, 1).pngsave_buffer
   end
 end

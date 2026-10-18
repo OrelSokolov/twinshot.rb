@@ -5,7 +5,7 @@ require "tmpdir"
 require "fileutils"
 require "stringio"
 require "json"
-require "chunky_png"
+require "vips"
 
 class TestCli < Minitest::Test
   def test_global_help_exits_zero
@@ -94,9 +94,9 @@ class TestCli < Minitest::Test
       %w[oracle current].each do |side|
         dir = File.join(tmp, side)
         FileUtils.mkdir_p(dir)
-        image = ChunkyPNG::Image.new(4, 4, ChunkyPNG::Color.rgb(255, 0, 0))
-        image[1, 1] = ChunkyPNG::Color.rgb(0, 255, 0) if side == "current"
-        image.save(File.join(dir, "shot.png"))
+        image = Vips::Image.black(4, 4, bands: 3).add([255, 0, 0])
+        image = image.draw_rect([0, 255, 0], 1, 1, 1, 1) if side == "current"
+        image.pngsave(File.join(dir, "shot.png"))
       end
       run_cli("-c", config_path(tmp, tmp), "compare")
       html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))

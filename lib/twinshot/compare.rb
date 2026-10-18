@@ -2,12 +2,18 @@
 
 require "etc"
 require "json"
+require "rbconfig"
 
 module Twinshot
   # Orchestrates a compare run: structure check first (cheap, sequential),
-  # then every common file through its adapter — optionally in a pool of
-  # forked worker processes (chunky_png pixel walks are CPU-bound, so real
-  # processes beat threads under the GVL; works on any unix ruby >= 3.2).
+  # then every common file through its adapter — in a pool of worker
+  # processes (libvips pixel compares are CPU-bound, so real processes beat
+  # threads under the GVL). Workers are fresh rubies exec'd via
+  # compare_worker.rb (~0.13s boot, in parallel): forking this process
+  # instead would be free, but once it has run any libvips operation
+  # (sequential group, fixtures, library usage) forked children can
+  # deadlock on their first image compare — idle libvips worker threads
+  # leave glib state that does not survive fork.
   #
   # Every configured group runs through the same pipeline in config order;
   # each produced result carries its group name, and diff artifacts land in
@@ -18,6 +24,19 @@ module Twinshot
   # fire in real time instead of after the whole run.
   class Compare
     class Error < StandardError; end
+
+    # A spawned worker: read its JSON result lines from #reader, then #finish
+    # (after drain saw EOF) and #crashed? to reap it.
+    Worker = Struct.new(:reader, :pid) do
+      def finish
+        reader.close unless reader.closed?
+      end
+
+      def crashed?
+        Process.wait(pid)
+        !$?.success?
+      end
+    end
 
     MAX_WORKERS = 8
 
@@ -112,30 +131,36 @@ module Twinshot
     end
 
     def parallel(group, ctx, entries, workers, progress)
-      pipes = Array.new(workers) { IO.pipe }
-      pids = spawn_workers(pipes, group, ctx, entries, workers)
-      pipes.each { |_rd, wr| wr.close }
-      results = drain(pipes.map(&:first), progress)
-      crashed = pids.map do |pid|
-        Process.wait(pid)
-        !$?.success?
-      end.any?
+      spawned = spawn_workers(group, ctx, entries, workers)
+      results = drain(spawned.map(&:reader), progress)
+      spawned.each(&:finish)
+      crashed = spawned.any?(&:crashed?)
       raise Error, "a compare worker crashed" if crashed
       raise Error, "workers produced #{results.size}/#{entries.size} results" if results.size != entries.size
 
       results
     end
 
-    def spawn_workers(pipes, group, ctx, entries, workers)
-      pipes.each_with_index.map do |(_rd, wr), index|
-        Process.fork do
-          pipes.each { |rd, _wr| rd.close }
-          wr.sync = true
-          entries.select.with_index { |_entry, i| i % workers == index }.each do |rel, adapter|
-            wr.write(JSON.generate(run_one(group, ctx, rel, adapter)) + "\n")
-          end
-          exit!(0) # skip parent's at_exit handlers
-        end
+    def spawn_workers(group, ctx, entries, workers)
+      script = File.expand_path("compare_worker.rb", __dir__)
+      libdir = File.expand_path("..", __dir__)
+      base = {
+        "group" => group.name,
+        "oracle" => group.oracle_path,
+        "current" => group.current_path,
+        "max_diff_ratio" => ctx.max_diff_ratio,
+        "report_dir" => ctx.report_dir,
+        "rels" => entries.map(&:first)
+      }
+      Array.new(workers) do |index|
+        payload_rd, payload_wr = IO.pipe
+        out_rd, out_wr = IO.pipe
+        pid = Process.spawn(RbConfig.ruby, "-I", libdir, script, in: payload_rd, out: out_wr)
+        payload_wr.write(JSON.generate(base.merge("index" => index, "workers" => workers)))
+        payload_rd.close
+        payload_wr.close
+        out_wr.close
+        Worker.new(out_rd, pid)
       end
     end
 

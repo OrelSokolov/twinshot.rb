@@ -4,8 +4,7 @@ require "test_helper"
 require "tmpdir"
 require "fileutils"
 require "json"
-require "stringio"
-require "chunky_png"
+require "vips"
 
 class TestCompare < Minitest::Test
   def test_end_to_end_report_and_summary
@@ -101,7 +100,7 @@ class TestCompare < Minitest::Test
     write(oracle, "a/one.txt", "same\nlines\n")
     write(current, "a/one.txt", "same\nlines\n")
     write(oracle, "a/two.png", make_png)
-    write(current, "a/two.png", make_png([1, 0] => ChunkyPNG::Color.rgb(0, 255, 0)))
+    write(current, "a/two.png", make_png([1, 0] => [0, 255, 0]))
     write(oracle, "b/deep.html", "<div id=\"x\" class=\"a\"><p>hello</p></div>")
     write(current, "b/deep.html", "<div class=\"a\"\n     id=\"x\">\n  <p>hello</p>\n</div>\n")
     write(oracle, "c/odd.xyz", "???")
@@ -127,8 +126,8 @@ class TestCompare < Minitest::Test
   end
 
   def make_png(changed = {})
-    image = ChunkyPNG::Image.new(2, 2, ChunkyPNG::Color.rgb(255, 0, 0))
-    changed.each { |(x, y), color| image[x, y] = color }
-    StringIO.open { |io| image.write(io); io.string }
+    image = Vips::Image.black(2, 2, bands: 3).add([255, 0, 0])
+    changed.each { |(x, y), color| image = image.draw_rect(color, x, y, 1, 1) }
+    image.pngsave_buffer
   end
 end
