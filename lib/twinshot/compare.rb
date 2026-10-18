@@ -44,8 +44,8 @@ module Twinshot
       @config = config
     end
 
-    # Returns the summary hash: { "total", "passed", "failed", "groups",
-    # "results" } — groups holds per-group stats plus the relative path to
+    # Returns the summary hash: { "total", "passed", "warned", "failed",
+    # "groups", "results" } — groups holds per-group stats plus the relative path to
     # that group's report. progress (Twinshot::Progress or anything
     # responding to #banner/#result) is optional; every produced result is
     # announced to it in arrival order.
@@ -58,6 +58,7 @@ module Twinshot
           "name" => group.name,
           "total" => group_results.size,
           "passed" => group_results.count { |r| r["status"] == "pass" },
+          "warned" => group_results.count { |r| r["status"] == "warn" },
           "failed" => group_results.count { |r| r["status"] == "fail" },
           "report" => File.join(Config::REPORT_DIRNAME, group.name, Config::HUMAN_REPORT)
         }
@@ -130,10 +131,19 @@ module Twinshot
     def run_one(group, ctx, rel, adapter)
       result = adapter.call(rel, File.join(group.oracle_path, rel),
                             File.join(group.current_path, rel), ctx)
+      soften(result, rel)
       result.merge("rel" => rel, "group" => group.name)
     rescue StandardError => e
       { "group" => group.name, "rel" => rel, "kind" => "error", "status" => "fail",
         "detail" => "#{e.class}: #{e.message}" }
+    end
+
+    # soft_check paths tolerate content diffs: fail → warn, so the run stays
+    # green while the reports still show the diff. Mirrored in
+    # compare_worker.rb. Adapter crashes (kind "error") are not softened —
+    # that is not "the time changed".
+    def soften(result, rel)
+      result["status"] = "warn" if result["status"] == "fail" && @config.soft_check?(rel)
     end
 
     def parallel(group, ctx, entries, workers, progress)
@@ -156,6 +166,7 @@ module Twinshot
         "current" => group.current_path,
         "max_diff_ratio" => ctx.max_diff_ratio,
         "report_dir" => ctx.report_dir,
+        "soft_check" => @config.soft_check,
         "rels" => entries.map(&:first)
       }
       Array.new(workers) do |index|
@@ -208,12 +219,16 @@ module Twinshot
 
     def summarize(results, group_stats)
       order = group_stats.each_with_index.to_h { |g, i| [g["name"], i] }
+      # fail first, then warn, then pass — the statuses the report is opened
+      # for lead their directory.
+      rank = { "fail" => 0, "warn" => 1 }
       sorted = results.sort_by do |r|
-        [order[r["group"]], File.dirname(r["rel"]), r["status"] == "pass" ? 1 : 0, File.basename(r["rel"])]
+        [order[r["group"]], File.dirname(r["rel"]), rank.fetch(r["status"], 2), File.basename(r["rel"])]
       end
       {
         "total" => sorted.size,
         "passed" => sorted.count { |r| r["status"] == "pass" },
+        "warned" => sorted.count { |r| r["status"] == "warn" },
         "failed" => sorted.count { |r| r["status"] == "fail" },
         "groups" => group_stats,
         "results" => sorted

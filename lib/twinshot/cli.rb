@@ -90,6 +90,8 @@ module Twinshot
         o.separator "(report_for_human.html + report_for_agent.md + summary.json + diffs/)."
         o.separator ""
         o.separator "Exit status: 0 — all pass, 1 — differences found, 2 — config error."
+        o.separator "soft_check paths downgrade content diffs to warnings: shown"
+        o.separator "in the reports, never change the exit code."
         o.separator ""
         o.separator "Options:"
         o.on("-c", "--config PATH", "Path to twinshot.yml (default: #{Config::DEFAULT_FILENAME})") do |v|
@@ -107,14 +109,16 @@ module Twinshot
 
     def generate_parser
       OptionParser.new do |o|
-        o.banner = "Usage: twinshot generate [-c PATH] [-g NAME] oracle|current"
+        o.banner = "Usage: twinshot generate [-c PATH] [-g NAME] [oracle|current]"
         o.separator ""
-        o.separator "Runs the generate command configured for that side"
-        o.separator "(oracle.generate / current.generate in twinshot.yml), with the"
-        o.separator "config's directory as cwd. Optional: a compare run just takes"
-        o.separator "the two directories as they are."
+        o.separator "Runs the generate commands configured in twinshot.yml, with"
+        o.separator "the config's directory as cwd. With a side: that tree only"
+        o.separator "(default group unless -g). Without a side: every configured"
+        o.separator "tree — all groups, oracle then current — announced as a list"
+        o.separator "and regenerated sequentially. Optional: a compare run just"
+        o.separator "takes the two directories as they are."
         o.separator ""
-        o.separator "Exit status: 0 — command succeeded, 1 — command failed,"
+        o.separator "Exit status: 0 — all commands succeeded, 1 — a command failed,"
         o.separator "2 — nothing configured / usage error."
         o.separator ""
         o.separator "Options:"
@@ -168,38 +172,44 @@ module Twinshot
       end
 
       side = @argv.shift
-      unless %w[oracle current].include?(side)
+      unless side.nil? || Config::SIDES.include?(side)
         @err.puts "twinshot: expected 'oracle' or 'current', got #{side.inspect}"
         @err.puts generate_parser
         return EXIT_ERROR
       end
 
       config = Config.load(@config_path)
-      if @group == "all"
-        targets = config.groups.filter_map { |g| [g, g.generate_command(side)] }
-        if targets.empty?
-          @err.puts "twinshot: no #{side}.generate configured in any group in #{File.basename(config.path)}"
-          return EXIT_ERROR
+      # A bare `generate SIDE` stays default-group-only (as before); no side
+      # at all — or -g all — means every group. Trees without a generate
+      # command are simply skipped.
+      groups = if @group.nil? && side || @group && @group != "all"
+                 [config.group(@group || Config::DEFAULT_GROUP)]
+               else
+                 config.groups
+               end
+      sides = side ? [side] : Config::SIDES
+      targets = groups.flat_map do |g|
+        sides.filter_map do |s|
+          command = g.generate_command(s)
+          [g, s, command] if command
         end
-      else
-        group = config.group(@group || Config::DEFAULT_GROUP)
-        command = group.generate_command(side)
-        unless command
-          @err.puts "twinshot: no #{side}.generate configured for group #{group.name} in #{File.basename(config.path)}"
-          return EXIT_ERROR
-        end
-
-        targets = [[group, command]]
+      end
+      if targets.empty?
+        what = side ? "#{side}.generate" : "generate"
+        scope = groups.size == 1 ? "for group #{groups.first.name}" : "in any selected group"
+        @err.puts "twinshot: no #{what} configured #{scope} in #{File.basename(config.path)}"
+        return EXIT_ERROR
       end
 
-      if targets.all? do |group, command|
-        @out.puts "twinshot: [#{group.name}] #{command}"
+      # Say it first — the full list of trees about to be regenerated — then
+      # run them one by one; a failing command doesn't stop the rest.
+      @out.puts "Generate:"
+      targets.each { |group, tree, _command| @out.puts "- #{group.name}/#{tree}" }
+      results = targets.map do |group, tree, command|
+        @out.puts "twinshot: [#{group.name}/#{tree}] #{command}"
         system(command, chdir: config.root)
       end
-        EXIT_OK
-      else
-        EXIT_DIFF
-      end
+      results.all? ? EXIT_OK : EXIT_DIFF
     end
 
     def help

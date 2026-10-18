@@ -13,6 +13,7 @@ module Twinshot
       @index = 0
       @total = nil
       @fails = []
+      @warns = []
     end
 
     def banner(config, group:, oracle_count:, current_count:, total:, workers:)
@@ -32,11 +33,16 @@ module Twinshot
       return unless @out
 
       @index += 1
-      passed = result["status"] == "pass"
-      @fails << result unless passed
-      mark = passed ? paint("✓", :green) : paint("✗", :red)
+      status = result["status"]
+      @fails << result if status == "fail"
+      @warns << result if status == "warn"
+      mark, tone = case status
+                   when "pass" then [paint("✓", :green), nil]
+                   when "warn" then [paint("!", :yellow), :yellow]
+                   else [paint("✗", :red), :red]
+                   end
       detail = result["detail"].to_s
-      detail = paint(detail, :red) unless passed
+      detail = paint(detail, tone) if tone
       rel = result["group"] ? "#{result["group"]}/#{result["rel"]}" : result["rel"]
       @out.puts format("  [%3d/%-3d] %s %s — %s", @index, @total || "?", mark, rel, detail)
     end
@@ -46,7 +52,16 @@ module Twinshot
 
       @out.puts
       if summary["failed"].zero?
-        @out.puts paint("OK: #{summary["passed"]}/#{summary["total"]} passed", :green)
+        warned = summary["warned"].to_i
+        ok = "OK: #{summary["passed"]}/#{summary["total"]} passed"
+        ok = "#{ok} (#{warned} warn)" if warned.positive?
+        @out.puts paint(ok, :green)
+        if warned.positive?
+          # Copyable list of every warned file (soft_check), like FAILS below.
+          @out.puts paint("WARNS:", :yellow)
+          @warns.each { |r| @out.puts paint(rel_path(r), :yellow) }
+          @out.puts
+        end
       else
         breakdown = summary["results"]
                     .select { |r| r["status"] == "fail" }
@@ -55,7 +70,7 @@ module Twinshot
         @out.puts paint("FAIL: #{summary["failed"]}/#{summary["total"]} failed (#{breakdown})", :red)
         # Copyable list of every failed file, printed once more as a group.
         @out.puts paint("FAILS:", :red)
-        @fails.each { |r| @out.puts fail_path(r) }
+        @fails.each { |r| @out.puts rel_path(r) }
         @out.puts
       end
       @out.puts "Done in #{format_duration(elapsed)}" if elapsed
@@ -64,7 +79,7 @@ module Twinshot
 
     private
 
-    def fail_path(result)
+    def rel_path(result)
       result["group"] ? "#{result["group"]}/#{result["rel"]}" : result["rel"]
     end
 

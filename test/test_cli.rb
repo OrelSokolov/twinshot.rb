@@ -236,6 +236,54 @@ class TestCli < Minitest::Test
     end
   end
 
+  def test_generate_all_trees_without_side
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      content = File.read(config)
+                    .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch o-default")
+                    .sub("path: #{tmp}/current", "path: #{tmp}/current\n  generate: touch c-default")
+      content += <<~YAML
+        groups:
+          dogs:
+            oracle:
+              path: #{tmp}/oracle
+              generate: touch o-dogs
+            current:
+              path: #{tmp}/current
+              generate: touch c-dogs
+      YAML
+      File.write(config, content)
+      assert_equal 0, run_cli("-c", config, "generate")
+      %w[o-default c-default o-dogs c-dogs].each { |m| assert File.exist?(File.join(tmp, m)), m }
+      assert_includes @out.string, "Generate:"
+      %w[default/oracle default/current dogs/oracle dogs/current].each do |label|
+        assert_includes @out.string, "- #{label}"
+      end
+    end
+  end
+
+  def test_generate_without_side_runs_rest_after_failure
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      content = File.read(config)
+                    .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: \"false\"")
+                    .sub("path: #{tmp}/current", "path: #{tmp}/current\n  generate: touch still-run")
+      File.write(config, content)
+      assert_equal 1, run_cli("-c", config, "generate")
+      assert File.exist?(File.join(tmp, "still-run")), "a failed command must not stop the rest"
+    end
+  end
+
+  def test_generate_without_side_nothing_configured
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      assert_equal 2, run_cli("-c", config_path(tmp, tmp), "generate")
+      assert_includes @err.string, "no generate configured"
+    end
+  end
+
   private
 
   def run_cli(*args, tty: false, json: false)

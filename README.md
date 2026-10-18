@@ -1,4 +1,4 @@
-# Twinshot — Make "clean room" implementation of every program in the earth!
+# <img src="logo.svg" alt="Twinshot logo" width="36" valign="middle"> Twinshot — Make "clean room" implementation of every program in the earth!
 
 Save and compare screenshots of the functionality of other applications you
 want to copy end to end: a proven **oracle** tree against the **current**
@@ -58,6 +58,10 @@ current:
 png:
   max_diff_ratio: 0.002           # optional, default 0.002 (applies to all groups)
 
+soft_check:                       # optional: exact tree-relative file paths
+  - dashboard/header.png          # whose content diffs are tolerated (clocks,
+                                   # dates…) — reported as warnings, exit code stays 0
+
 # optional: named groups — additional tree pairs with the same fields
 # (path + generate per side). Any names work.
 groups:
@@ -82,11 +86,18 @@ Every group writes its report into its own folder:
 `report_for_human.html`, `report_for_agent.md`, `summary.json`, `diffs/`.
 Not configurable.
 
+Paths listed in `soft_check` (exact tree-relative paths, the same list for
+every group) are snapshots whose content is allowed to differ — typically
+screenshots with a clock or other dynamic content. Their diffs come back as
+**warnings**: fully visible in both reports and counted separately, but they
+never change the exit code. Structure problems (missing/extra files) are
+never softened.
+
 ## Commands
 
 ```
 twinshot compare [-c PATH] [-j N] [--json] [--[no-]open]  # compare all groups, write reports
-twinshot generate [-g NAME|all] oracle|current  # run a side's generate command
+twinshot generate [-g NAME|all] [oracle|current]  # run generate commands
 twinshot help [COMMAND]                      # help
 ```
 
@@ -99,11 +110,16 @@ twinshot help [COMMAND]                      # help
   disable. Cross-platform "open" (`Twinshot::Opener`): darwin — `open`,
   windows — `start` via `cmd /c`, linux/BSD — `xdg-open`; a failed launch
   does not affect the exit code.
-- `generate` without `-g` works on the default group; `-g dogs` — a named
-  one, `-g all` — runs the side's command in every group where it is
-  configured.
+- `generate` without a side regenerates **every configured tree** — all
+  groups, `oracle` then `current`, sequentially — and announces the list
+  first: `Generate:` followed by `group/side` for each target. With a side
+  (`generate oracle|current`) it stays single-tree: the default group unless
+  `-g`; `-g dogs` — a named one, `-g all` — runs the side's command in every
+  group where it is configured. A failing command doesn't stop the rest, but
+  the exit code reports it.
 - Exit codes: `0` — everything matched, `1` — differences found (fits
-  `git bisect run` and CI), `2` — config/usage error.
+  `git bisect run` and CI), `2` — config/usage error. `soft_check` warnings
+  never affect the exit code.
 
 ## Report
 
@@ -112,7 +128,7 @@ Two files per group folder:
 - `report_for_human.html` — the visual report (opened in a browser after
   `compare`):
   - flat gallery ordered by folder (one card per file, no folder headings);
-  - substring search, filters all/failed/passed;
+  - substring search, filters all/failed/warned/passed;
   - image modes: **side-by-side** (50/50), **slider** (overlay with a handle),
     **blink** (oracle/current alternating);
   - **zones** — a purple overlay over images: the picture is split into 32×32 px
@@ -137,7 +153,9 @@ bundle exec rake test && bundle exec rake build   # pkg/twinshot-X.Y.Z.gem
 Ruby >= 3.2 (developed on 4.0). Dependencies: `ruby-vips` (native `libvips`),
 `colorize`, `diff-lcs`, `nokogiri`.
 
-A run prints live progress: a banner, a colored per-file verdict (✓/✗) in
-worker arrival order, and a final stats block by type. When anything failed,
-a copyable `FAILS:` list of every failed file follows the stats block.
-Colors on a tty only; `--json` disables progress.
+A run prints live progress: a banner, a colored per-file verdict (✓ pass /
+`!` warn / ✗ fail) in worker arrival order, and a final stats block by type.
+When anything failed, a copyable `FAILS:` list of every failed file follows
+the stats block; on an otherwise green run with warnings, a `WARNS:` list of
+the `soft_check` files instead. Colors on a tty only; `--json` disables
+progress.

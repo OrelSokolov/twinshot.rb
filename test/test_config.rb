@@ -61,6 +61,33 @@ class TestConfig < Minitest::Test
     end
   end
 
+  def test_soft_check_lists_exact_paths
+    Dir.mktmpdir do |dir|
+      config = Twinshot::Config.load(write_config(dir, <<~YAML))
+        oracle: {path: o}
+        current: {path: c}
+        soft_check:
+          - dashboard/header.png
+          - analytics/main.png
+      YAML
+      assert_equal ["dashboard/header.png", "analytics/main.png"], config.soft_check
+      assert config.soft_check?("dashboard/header.png")
+      assert config.soft_check?("analytics/main.png")
+      refute config.soft_check?("dashboard/other.png")
+      refute config.soft_check?("dashboard") # folders are not file paths
+    end
+  end
+
+  def test_soft_check_invalid_raises
+    ["soft_check: dashboard\n", "soft_check: {a: b}\n", "soft_check: [\"\"]\n", "soft_check: [3]\n"].each do |soft|
+      Dir.mktmpdir do |dir|
+        path = write_config(dir, "oracle: {path: o}\ncurrent: {path: c}\n#{soft}")
+        error = assert_raises(Twinshot::Config::Error) { Twinshot::Config.load(path) }
+        assert_match(/soft_check/, error.message)
+      end
+    end
+  end
+
   def test_unknown_generate_side_raises
     Dir.mktmpdir do |dir|
       config = Twinshot::Config.load(write_config(dir, "oracle: {path: o}\ncurrent: {path: c}\n"))

@@ -40,6 +40,42 @@ class TestProgress < Minitest::Test
     assert_includes out.string, "OK: 2/2 passed"
   end
 
+  def test_warn_results_get_their_own_mark_and_list
+    out = StringIO.new
+    progress = Twinshot::Progress.new(out: out)
+    config = make_config
+    progress.banner(config, group: config.groups.first, oracle_count: 1, current_count: 1, total: 3, workers: 1)
+    progress.result({ "group" => "default", "rel" => "a/clock.png", "kind" => "png",
+                      "status" => "warn", "detail" => "0.500% px differ" })
+    progress.result({ "group" => "default", "rel" => "a/real.png", "kind" => "png",
+                      "status" => "fail", "detail" => "9.000% px differ" })
+    progress.summary({ "total" => 3, "passed" => 1, "warned" => 1, "failed" => 1, "results" => [] },
+                     "/tmp/r.html")
+    lines = out.string.lines
+    assert_match(%r{\[ *1/3 *\] ! default/a/clock\.png — 0\.500% px differ}, lines[5])
+    assert_match(%r{\[ *2/3 *\] ✗ default/a/real\.png — 9\.000% px differ}, lines[6])
+    assert_match(/FAIL: 1\/3 failed/, lines[8])
+    assert_equal("FAILS:\n", lines[9])
+    assert_equal("default/a/real.png\n", lines[10]) # warns stay out of FAILS
+    refute_includes out.string, "WARNS:" # warns are not listed while the run failed
+  end
+
+  def test_green_run_lists_warns
+    out = StringIO.new
+    progress = Twinshot::Progress.new(out: out)
+    config = make_config
+    progress.banner(config, group: config.groups.first, oracle_count: 1, current_count: 1, total: 2, workers: 1)
+    progress.result({ "group" => "default", "rel" => "a/clock.png", "kind" => "png",
+                      "status" => "warn", "detail" => "0.500% px differ" })
+    progress.result({ "group" => "default", "rel" => "a/ok.png", "kind" => "png",
+                      "status" => "pass", "detail" => "bytes equal" })
+    progress.summary({ "total" => 2, "passed" => 1, "warned" => 1, "failed" => 0, "results" => [] },
+                     "/tmp/r.html")
+    assert_includes out.string, "OK: 1/2 passed (1 warn)"
+    assert_match(/WARNS:\ndefault\/a\/clock\.png\n\n(?=report:)/, out.string)
+    refute_includes out.string, "FAILS:"
+  end
+
   def test_quiet_is_silent
     progress = Twinshot::Progress.new(out: StringIO.new, quiet: true)
     config = make_config

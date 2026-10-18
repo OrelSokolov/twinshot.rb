@@ -8,6 +8,7 @@ module Twinshot
   #   oracle:  { path: artifacts/rails,  generate: bin/record }
   #   current: { path: artifacts/crails, generate: bin/record --crails }
   #   png:     { max_diff_ratio: 0.002 }
+  #   soft_check: [dashboard/header.png]   # content diffs there → warnings
   #   groups:
   #     dogs:
   #       oracle:  { path: artifacts/dogs-rails }
@@ -134,6 +135,27 @@ module Twinshot
       raise Error, "png.max_diff_ratio must be a number, got: #{value.inspect}"
     end
 
+    # Exact tree-relative file paths (the same list applies to every group)
+    # whose content diffs are tolerated — snapshots with a clock, dates or
+    # other dynamic content. Their diffs come back as "warn": shown and
+    # counted in the reports, but they never fail the run. Structure
+    # problems (missing/extra files) are never softened.
+    def soft_check
+      paths = case @data["soft_check"]
+              when nil then []
+              when Array then @data["soft_check"]
+              else raise Error, "soft_check must be a list of file paths, got: #{@data["soft_check"].inspect}"
+              end
+      unless paths.all? { |path| path.is_a?(String) && !path.empty? }
+        raise Error, "soft_check entries must be non-empty file paths"
+      end
+      paths
+    end
+
+    def soft_check?(rel)
+      soft_check.include?(rel)
+    end
+
     def report_root
       File.join(@root, REPORT_DIRNAME)
     end
@@ -171,10 +193,11 @@ module Twinshot
       raise Error, "config root must be a mapping" unless @data.is_a?(Hash)
 
       @data.each do |key, value|
-        raise Error, "#{key} must be a mapping" if key != "png" && !value.is_a?(Hash)
+        raise Error, "#{key} must be a mapping" if key != "png" && key != "soft_check" && !value.is_a?(Hash)
       end
       groups.each(&:validate!)
       max_diff_ratio
+      soft_check
     end
   end
 end

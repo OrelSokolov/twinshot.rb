@@ -9,7 +9,8 @@
 # Reads one JSON blob on stdin:
 #
 #   { "group": "default", "oracle": "...", "current": "...", "rels": ["a.png"],
-#     "max_diff_ratio": 0.002, "report_dir": "...", "index": 0, "workers": 4 }
+#     "max_diff_ratio": 0.002, "report_dir": "...", "soft_check": ["b.png"],
+#     "index": 0, "workers": 4 }
 #
 # and writes one JSON result line per its slice of rels to stdout — the same
 # protocol the forked workers use. Result construction mirrors
@@ -24,6 +25,7 @@ ctx = Twinshot::Adapters::Ctx.new(max_diff_ratio: payload.fetch("max_diff_ratio"
 group = payload.fetch("group")
 oracle = payload.fetch("oracle")
 current = payload.fetch("current")
+soft_check = payload.fetch("soft_check")
 index = payload.fetch("index")
 workers = payload.fetch("workers")
 $stdout.sync = true
@@ -33,6 +35,7 @@ payload.fetch("rels").each_with_index do |rel, i|
 
   result = begin
     Twinshot::Adapters.for(rel).call(rel, File.join(oracle, rel), File.join(current, rel), ctx)
+                      .tap { |r| r["status"] = "warn" if r["status"] == "fail" && soft_check.include?(rel) }
                       .merge("rel" => rel, "group" => group)
   rescue StandardError => e
     { "group" => group, "rel" => rel, "kind" => "error", "status" => "fail",

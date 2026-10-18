@@ -49,6 +49,44 @@ class TestCompare < Minitest::Test
     end
   end
 
+  def test_soft_check_downgrades_content_diffs_to_warns
+    Dir.mktmpdir do |tmp|
+      build_fixture(tmp)
+      config_path = File.join(tmp, "twinshot.yml")
+      File.write(config_path, File.read(config_path) + <<~YAML)
+        soft_check:
+          - a/two.png
+          - d/only-oracle.txt
+      YAML
+      config = Twinshot::Config.load(config_path)
+
+      sequential = Twinshot::Compare.new(config).run(jobs: 1)
+      parallel = Twinshot::Compare.new(config).run(jobs: 2)
+      assert_equal sequential["results"], parallel["results"] # worker path downgrades too
+
+      Twinshot::Report.new(config, parallel).write
+      by_rel = parallel["results"].to_h { |r| [r["rel"], r] }
+      assert_equal "warn", by_rel["a/two.png"]["status"]         # content diff softened
+      assert_equal "fail", by_rel["d/only-oracle.txt"]["status"] # structure never softened
+      assert_equal 2, parallel["passed"]
+      assert_equal 1, parallel["warned"]
+      assert_equal 3, parallel["failed"]
+      assert_equal 1, parallel["groups"].first["warned"]
+
+      # the diff image is written for warns too — there is something to look at
+      assert File.exist?(File.join(config.report_dir, "diffs", "a", "two.png.diff.png"))
+      report_html = File.read(File.join(config.report_dir, Twinshot::Config::HUMAN_REPORT))
+      assert_includes report_html, %(class="shot warn")
+      assert_includes report_html, %(data-f="warn")
+      assert_includes report_html, "1 warn"
+      agent_md = File.read(File.join(config.report_dir, Twinshot::Config::AGENT_REPORT))
+      assert_includes agent_md, "## Warnings (1)"
+      assert_includes agent_md, "### a/two.png"
+      summary_json = JSON.parse(File.read(File.join(config.report_dir, "summary.json")))
+      assert_equal 1, summary_json["warned"]
+    end
+  end
+
   def test_multiple_groups_tag_results_and_reports
     Dir.mktmpdir do |tmp|
       build_fixture(tmp)
