@@ -93,6 +93,38 @@ class TestAdapters < Minitest::Test
     assert_match(/size mismatch 2x2 vs 2x3/, result["detail"])
   end
 
+  def test_png_heat_grid
+    a = make_png("red")
+    b = make_png_with_pixel("red", 1, 0, ChunkyPNG::Color.rgb(0, 255, 0))
+    result = call(Twinshot::Adapters::Png, a, b)
+    assert_equal({ "cell" => Twinshot::Adapters::Png::HEAT_CELL, "w" => 2, "h" => 2,
+                   "cells" => [[0, 0, 0.25]] }, result["heat"])
+  end
+
+  def test_png_heat_edge_cell_uses_actual_area
+    a = ChunkyPNG::Image.new(40, 40, ChunkyPNG::Color.rgb(255, 0, 0))
+    b = ChunkyPNG::Image.new(40, 40, ChunkyPNG::Color.rgb(255, 0, 0))
+    3.times { |i| b[33 + i, 1] = ChunkyPNG::Color.rgb(0, 255, 0) }
+    result = call(Twinshot::Adapters::Png, png_bytes(a), png_bytes(b))
+    # edge column is 8px wide (40 - 32), so the cell area is 8*32, not 32*32
+    assert_equal [[1, 0, 0.01]], result["heat"]["cells"]
+  end
+
+  def test_png_heat_present_on_pass_but_no_diff_image
+    a = make_png("red")
+    b = make_png_with_pixel("red", 1, 0, ChunkyPNG::Color.rgb(0, 255, 0))
+    lenient = Twinshot::Adapters::Ctx.new(max_diff_ratio: 0.5, report_dir: @ctx.report_dir)
+    result = Twinshot::Adapters::Png.call("a.png", write_file("a.png", a), write_file("b.png", b), lenient)
+    assert_equal "pass", result["status"]
+    assert result.key?("heat")
+    refute result.key?("diff_image")
+  end
+
+  def test_png_no_heat_when_bytes_equal
+    png = make_png("red")
+    refute call(Twinshot::Adapters::Png, png, png).key?("heat")
+  end
+
   private
 
   def call(adapter, oracle_content, current_content)
@@ -114,6 +146,10 @@ class TestAdapters < Minitest::Test
   def make_png_with_pixel(color, x, y, pixel)
     image = ChunkyPNG::Image.new(2, 2, ChunkyPNG::Color.rgb(*{ "red" => [255, 0, 0] }.fetch(color)))
     image[x, y] = pixel
+    StringIO.open { |io| image.write(io); io.string }
+  end
+
+  def png_bytes(image)
     StringIO.open { |io| image.write(io); io.string }
   end
 end

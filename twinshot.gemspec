@@ -39,6 +39,7 @@ Gem::Specification.new do |spec|
   # spec.add_dependency "example-gem", "~> 1.0"
 
   spec.add_dependency "chunky_png", "~> 1.4"
+  spec.add_dependency "colorize", "~> 1.1"
   spec.add_dependency "diff-lcs", "~> 2.0"
   spec.add_dependency "nokogiri", "~> 1.16"
 

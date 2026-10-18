@@ -4,6 +4,7 @@ require "test_helper"
 require "tmpdir"
 require "fileutils"
 require "stringio"
+require "chunky_png"
 
 class TestCli < Minitest::Test
   def test_global_help_exits_zero
@@ -55,6 +56,24 @@ class TestCli < Minitest::Test
       run_cli("-c", config_path(tmp, tmp), "compare")
       assert File.exist?(File.join(tmp, "twinshot-report", "report.html"))
       assert File.exist?(File.join(tmp, "twinshot-report", "summary.json"))
+    end
+  end
+
+  def test_compare_report_heat_overlay
+    Dir.mktmpdir do |tmp|
+      %w[oracle current].each do |side|
+        dir = File.join(tmp, side)
+        FileUtils.mkdir_p(dir)
+        image = ChunkyPNG::Image.new(4, 4, ChunkyPNG::Color.rgb(255, 0, 0))
+        image[1, 1] = ChunkyPNG::Color.rgb(0, 255, 0) if side == "current"
+        image.save(File.join(dir, "shot.png"))
+      end
+      run_cli("-c", config_path(tmp, tmp), "compare")
+      html = File.read(File.join(tmp, "twinshot-report", "report.html"))
+      assert_includes html, %(<div class="heat")
+      assert_includes html, "rgba(160,32,240,"
+      assert_includes html, %(data-h="on")
+      assert_includes File.read(File.join(tmp, "twinshot-report", "summary.json")), '"heat"'
     end
   end
 

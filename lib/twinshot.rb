@@ -5,6 +5,7 @@ require_relative "twinshot/config"
 require_relative "twinshot/tree"
 require_relative "twinshot/adapters"
 require_relative "twinshot/compare"
+require_relative "twinshot/progress"
 require_relative "twinshot/report"
 require_relative "twinshot/cli"
 

@@ -2,6 +2,7 @@
 
 require "json"
 require "optparse"
+require_relative "progress"
 
 module Twinshot
   # Command-line interface: twinshot help | generate | compare.
@@ -127,11 +128,11 @@ module Twinshot
       end
 
       config = Config.load(@config_path)
-      summary = Compare.new(config).run(jobs: @jobs)
+      progress = Progress.new(out: @out, quiet: @json)
+      summary = Compare.new(config).run(jobs: @jobs, progress: progress)
       Report.new(config, summary).write
       @out.puts JSON.pretty_generate(summary) if @json
-      @out.puts "twinshot: #{summary['passed']}/#{summary['total']} passed, #{summary['failed']} failed"
-      @out.puts "report: #{File.join(config.report_dir, 'report.html')}"
+      progress.summary(summary, File.join(config.report_dir, "report.html"))
       summary["failed"].zero? ? EXIT_OK : EXIT_DIFF
     end
 
