@@ -4,6 +4,7 @@ require "test_helper"
 require "tmpdir"
 require "fileutils"
 require "stringio"
+require "json"
 require "chunky_png"
 
 class TestCli < Minitest::Test
@@ -11,7 +12,7 @@ class TestCli < Minitest::Test
     exit_code = run_cli("help")
     assert_equal 0, exit_code
     assert_includes @out.string, "twinshot — 1:1 artifact parity"
-    assert_includes @out.string, "compare oracle and current trees"
+    assert_includes @out.string, "compare every group (oracle vs current trees), write reports"
   end
 
   def test_help_topic
@@ -54,8 +55,29 @@ class TestCli < Minitest::Test
     Dir.mktmpdir do |tmp|
       make_trees(tmp, diff: true)
       run_cli("-c", config_path(tmp, tmp), "compare")
-      assert File.exist?(File.join(tmp, "twinshot-report", "report.html"))
-      assert File.exist?(File.join(tmp, "twinshot-report", "summary.json"))
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report.html"))
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "summary.json"))
+    end
+  end
+
+  def test_compare_reports_per_group
+    Dir.mktmpdir do |tmp|
+      config = config_path(tmp, tmp)
+      make_trees(tmp, diff: false)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle: {path: #{tmp}/oracle}
+            current: {path: #{tmp}/current}
+      YAML
+      assert_equal 0, run_cli("-c", config, "compare")
+      %w[default dogs].each do |group|
+        assert File.exist?(File.join(tmp, "twinshot-report", group, "report.html")), group
+        assert File.exist?(File.join(tmp, "twinshot-report", group, "summary.json")), group
+      end
+      summary = JSON.parse(File.read(File.join(tmp, "twinshot-report", "default", "summary.json")))
+      assert_equal 1, summary["total"]
+      assert_equal "default", summary["results"].first["group"]
     end
   end
 
@@ -69,11 +91,54 @@ class TestCli < Minitest::Test
         image.save(File.join(dir, "shot.png"))
       end
       run_cli("-c", config_path(tmp, tmp), "compare")
-      html = File.read(File.join(tmp, "twinshot-report", "report.html"))
+      html = File.read(File.join(tmp, "twinshot-report", "default", "report.html"))
       assert_includes html, %(<div class="heat")
       assert_includes html, "rgba(160,32,240,"
       assert_includes html, %(data-h="on")
-      assert_includes File.read(File.join(tmp, "twinshot-report", "summary.json")), '"heat"'
+      assert_includes File.read(File.join(tmp, "twinshot-report", "default", "summary.json")), '"heat"'
+    end
+  end
+
+  def test_compare_open_opens_default_group_report
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      opened = []
+      Twinshot::Opener.stub(:open, ->(path) { opened << path }) do
+        assert_equal 0, run_cli("-c", config_path(tmp, tmp), "compare", "--open")
+      end
+      assert_equal [File.join(tmp, "twinshot-report", "default", "report.html")], opened
+      assert_empty @err.string
+    end
+  end
+
+  def test_compare_opens_by_default_on_tty_only
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      opened = []
+      Twinshot::Opener.stub(:open, ->(path) { opened << path }) do
+        assert_equal 0, run_cli("-c", config, "compare", tty: true)
+        assert_equal 1, opened.size, "tty run should open the report"
+        assert_equal 0, run_cli("-c", config, "compare")
+        assert_equal 1, opened.size, "non-tty run should not open the report"
+        assert_equal 0, run_cli("-c", config, "compare", tty: true, json: true)
+        assert_equal 1, opened.size, "--json run should not open the report"
+      end
+    end
+  end
+
+  def test_compare_no_open_stays_quiet_and_open_failure_warns_only
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      opened = []
+      Twinshot::Opener.stub(:open, ->(path) { opened << path; raise Twinshot::Opener::Error, "`open boom` failed" }) do
+        assert_equal 0, run_cli("-c", config, "compare", "--no-open", tty: true)
+        assert_empty opened
+        assert_equal 0, run_cli("-c", config, "compare", "--open", tty: true)
+        assert_equal 1, opened.size
+        assert_includes @err.string, "`open boom` failed"
+      end
     end
   end
 
@@ -96,12 +161,55 @@ class TestCli < Minitest::Test
     end
   end
 
+  def test_generate_for_named_group
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      marker = File.join(tmp, "dog-generated")
+      config = config_path(tmp, tmp)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle:
+              path: #{tmp}/oracle
+              generate: touch dog-generated
+            current: {path: #{tmp}/current}
+      YAML
+      assert_equal 0, run_cli("-c", config, "generate", "-g", "dogs", "oracle")
+      assert File.exist?(marker)
+      assert_equal 2, run_cli("-c", config, "generate", "-g", "cats", "oracle")
+      assert_includes @err.string, 'unknown group: "cats"'
+    end
+  end
+
+  def test_generate_all_groups
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      content = File.read(config)
+                     .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch default-generated")
+      content += <<~YAML
+        groups:
+          dogs:
+            oracle:
+              path: #{tmp}/oracle
+              generate: touch dog-generated
+            current: {path: #{tmp}/current}
+      YAML
+      File.write(config, content)
+      assert_equal 0, run_cli("-c", config, "generate", "-g", "all", "oracle")
+      assert File.exist?(File.join(tmp, "default-generated"))
+      assert File.exist?(File.join(tmp, "dog-generated"))
+    end
+  end
+
   private
 
-  def run_cli(*args)
+  def run_cli(*args, tty: false, json: false)
     @out = StringIO.new
+    @out.define_singleton_method(:tty?) { true } if tty
     @err = StringIO.new
-    Twinshot::CLI.new(args, out: @out, err: @err).call
+    argv = json ? args + ["--json"] : args
+    Twinshot::CLI.new(argv, out: @out, err: @err).call
   end
 
   def config_path(base, tmp = nil)

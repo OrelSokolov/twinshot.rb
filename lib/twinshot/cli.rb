@@ -21,6 +21,8 @@ module Twinshot
       @config_path = nil
       @jobs = nil
       @json = false
+      @open = nil
+      @group = nil
       @helped = false
     end
 
@@ -64,7 +66,7 @@ module Twinshot
         o.separator "Usage: twinshot [options] COMMAND [options]"
         o.separator ""
         o.separator "Commands:"
-        o.separator "  compare            compare oracle and current trees, write the report"
+        o.separator "  compare            compare every group (oracle vs current trees), write reports"
         o.separator "  generate SIDE      run the generate command for oracle|current"
         o.separator "  help [COMMAND]     show help"
         o.separator ""
@@ -79,7 +81,7 @@ module Twinshot
 
     def compare_parser
       OptionParser.new do |o|
-        o.banner = "Usage: twinshot compare [-c PATH] [-j N] [--json]"
+        o.banner = "Usage: twinshot compare [-c PATH] [-j N] [--json] [--[no-]open]"
         o.separator ""
         o.separator "Compares the oracle and current trees: structure first, then every"
         o.separator "file through a format adapter (png/html/txt/binary). Unknown files"
@@ -96,13 +98,15 @@ module Twinshot
           @jobs = v
         end
         o.on("--json", "Print the machine summary to stdout") { @json = true }
+        o.on("--[no-]open", "Open the report in the default browser",
+             "(default: on when stdout is a tty)") { |v| @open = v }
         o.on("-h", "--help", "Show this help") { @helped = true }
       end
     end
 
     def generate_parser
       OptionParser.new do |o|
-        o.banner = "Usage: twinshot generate oracle|current"
+        o.banner = "Usage: twinshot generate [-c PATH] [-g NAME] oracle|current"
         o.separator ""
         o.separator "Runs the generate command configured for that side"
         o.separator "(oracle.generate / current.generate in twinshot.yml), with the"
@@ -115,6 +119,9 @@ module Twinshot
         o.separator "Options:"
         o.on("-c", "--config PATH", "Path to twinshot.yml (default: #{Config::DEFAULT_FILENAME})") do |v|
           @config_path = v
+        end
+        o.on("-g", "--group NAME", "Group to generate for, or 'all' (default: #{Config::DEFAULT_GROUP})") do |v|
+          @group = v
         end
         o.on("-h", "--help", "Show this help") { @helped = true }
       end
@@ -132,8 +139,22 @@ module Twinshot
       summary = Compare.new(config).run(jobs: @jobs, progress: progress)
       Report.new(config, summary).write
       @out.puts JSON.pretty_generate(summary) if @json
-      progress.summary(summary, File.join(config.report_dir, "report.html"))
+      progress.summary(summary, config.report_root)
+      open_report(config)
       summary["failed"].zero? ? EXIT_OK : EXIT_DIFF
+    end
+
+    # The report opens in the browser after a compare run: by default when
+    # stdout is a tty (so CI and --json stay quiet), --open forces it,
+    # --no-open turns it off. A failed launch is a warning, not a parity
+    # result — it never changes the exit code.
+    def open_report(config)
+      should_open = @open.nil? ? !@json && @out.tty? : @open
+      return unless should_open
+
+      Opener.open(File.join(config.report_dir, "report.html"))
+    rescue Opener::Error => e
+      @err.puts "twinshot: #{e.message}"
     end
 
     def generate
@@ -151,14 +172,27 @@ module Twinshot
       end
 
       config = Config.load(@config_path)
-      command = config.generate_command(side)
-      unless command
-        @err.puts "twinshot: no #{side}.generate configured in #{File.basename(config.path)}"
-        return EXIT_ERROR
+      if @group == "all"
+        targets = config.groups.filter_map { |g| [g, g.generate_command(side)] }
+        if targets.empty?
+          @err.puts "twinshot: no #{side}.generate configured in any group in #{File.basename(config.path)}"
+          return EXIT_ERROR
+        end
+      else
+        group = config.group(@group || Config::DEFAULT_GROUP)
+        command = group.generate_command(side)
+        unless command
+          @err.puts "twinshot: no #{side}.generate configured for group #{group.name} in #{File.basename(config.path)}"
+          return EXIT_ERROR
+        end
+
+        targets = [[group, command]]
       end
 
-      @out.puts "twinshot: #{command}"
-      system(command, chdir: config.root) ? EXIT_OK : EXIT_DIFF
+      targets.all? do |group, command|
+        @out.puts "twinshot: [#{group.name}] #{command}"
+        system(command, chdir: config.root)
+      end ? EXIT_OK : EXIT_DIFF
     end
 
     def help

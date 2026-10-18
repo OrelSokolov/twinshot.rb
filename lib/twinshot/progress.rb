@@ -14,13 +14,14 @@ module Twinshot
       @total = nil
     end
 
-    def banner(config, oracle_count:, current_count:, total:, workers:)
+    def banner(config, group:, oracle_count:, current_count:, total:, workers:)
       @total = total
+      @index = 0
       return unless @out
 
-      @out.puts paint("twinshot — 1:1 parity", :bold)
-      @out.puts "  oracle   #{display_path(config.oracle_path)} (#{oracle_count} files)"
-      @out.puts "  current  #{display_path(config.current_path)} (#{current_count} files)"
+      @out.puts paint("twinshot — 1:1 parity · group #{group.name}", :bold)
+      @out.puts "  oracle   #{display_path(group.oracle_path)} (#{oracle_count} files)"
+      @out.puts "  current  #{display_path(group.current_path)} (#{current_count} files)"
       mode = workers == 1 ? "sequential" : "#{workers} workers"
       @out.puts "  #{total} results · #{mode} · png threshold #{format('%.2f', config.max_diff_ratio * 100)}%"
       @out.puts
@@ -34,7 +35,8 @@ module Twinshot
       mark = passed ? paint("✓", :green) : paint("✗", :red)
       detail = result["detail"].to_s
       detail = paint(detail, :red) unless passed
-      @out.puts format("  [%3d/%-3d] %s %s — %s", @index, @total || "?", mark, result["rel"], detail)
+      rel = result["group"] ? "#{result['group']}/#{result['rel']}" : result["rel"]
+      @out.puts format("  [%3d/%-3d] %s %s — %s", @index, @total || "?", mark, rel, detail)
     end
 
     def summary(summary, report_path)

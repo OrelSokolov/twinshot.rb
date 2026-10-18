@@ -9,6 +9,10 @@ module Twinshot
   # forked worker processes (chunky_png pixel walks are CPU-bound, so real
   # processes beat threads under the GVL; works on any unix ruby >= 3.2).
   #
+  # Every configured group runs through the same pipeline in config order;
+  # each produced result carries its group name, and diff artifacts land in
+  # that group's report folder.
+  #
   # Workers stream each finished result to the parent over a dedicated pipe
   # (one pipe per worker, one JSON line per result), so progress callbacks
   # fire in real time instead of after the whole run.
@@ -21,78 +25,95 @@ module Twinshot
       @config = config
     end
 
-    # Returns the summary hash: { "total", "passed", "failed", "results" }.
-    # progress (Twinshot::Progress or anything responding to #banner/#result)
-    # is optional; every produced result is announced to it in arrival order.
+    # Returns the summary hash: { "total", "passed", "failed", "groups",
+    # "results" } — groups holds per-group stats plus the relative path to
+    # that group's report. progress (Twinshot::Progress or anything
+    # responding to #banner/#result) is optional; every produced result is
+    # announced to it in arrival order.
     def run(jobs: nil, progress: nil)
-      oracle_files = scan(@config.oracle_path, "oracle")
-      current_files = scan(@config.current_path, "current")
-      structure = Tree.diff(oracle_files, current_files)
-      common = oracle_files - structure["missing"]
-      entries = common.to_h { |rel| [rel, Adapters.for(rel)] }
-      unknown = entries.filter_map { |rel, adapter| unknown_result(rel) if adapter.nil? }
-      comparable = entries.select { |_rel, adapter| adapter }
-      workers = resolve_workers(jobs, comparable.size)
-      total = oracle_files.size + structure["extra"].size
-
-      progress&.banner(@config, oracle_count: oracle_files.size, current_count: current_files.size,
-                                total: total, workers: workers)
       results = []
-      structure_results(structure).each { |r| results << r; progress&.result(r) }
-      unknown.each { |r| results << r; progress&.result(r) }
-
-      file_results = if workers > 1
-                       parallel(comparable, workers, progress)
-                     else
-                       sequential(comparable, progress)
-                     end
-      results.concat(file_results)
-      summarize(results)
+      group_stats = @config.groups.map do |group|
+        group_results = run_group(group, jobs, progress)
+        results.concat(group_results)
+        {
+          "name" => group.name,
+          "total" => group_results.size,
+          "passed" => group_results.count { |r| r["status"] == "pass" },
+          "failed" => group_results.count { |r| r["status"] == "fail" },
+          "report" => File.join(Config::REPORT_DIRNAME, group.name, "report.html")
+        }
+      end
+      summarize(results, group_stats)
     end
 
     private
 
-    def scan(path, side)
-      Tree.files(path)
-    rescue Errno::ENOENT
-      raise Config::Error, "#{side} path not found: #{path}"
+    def run_group(group, jobs, progress)
+      oracle_files = scan(group, "oracle")
+      current_files = scan(group, "current")
+      structure = Tree.diff(oracle_files, current_files)
+      common = oracle_files - structure["missing"]
+      entries = common.to_h { |rel| [rel, Adapters.for(rel)] }
+      unknown = entries.filter_map { |rel, adapter| unknown_result(group, rel) if adapter.nil? }
+      comparable = entries.select { |_rel, adapter| adapter }
+      workers = resolve_workers(jobs, comparable.size)
+      total = oracle_files.size + structure["extra"].size
+      ctx = Adapters::Ctx.new(max_diff_ratio: @config.max_diff_ratio, report_dir: @config.report_dir(group))
+
+      progress&.banner(@config, group: group, oracle_count: oracle_files.size, current_count: current_files.size,
+                                total: total, workers: workers)
+      results = []
+      structure_results(group, structure).each { |r| results << r; progress&.result(r) }
+      unknown.each { |r| results << r; progress&.result(r) }
+
+      file_results = if workers > 1
+                       parallel(group, ctx, comparable, workers, progress)
+                     else
+                       sequential(group, ctx, comparable, progress)
+                     end
+      results.concat(file_results)
     end
 
-    def structure_results(structure)
+    def scan(group, side)
+      path = side == "oracle" ? group.oracle_path : group.current_path
+      Tree.files(path)
+    rescue Errno::ENOENT
+      raise Config::Error, "#{side} path not found for group #{group.name}: #{path}"
+    end
+
+    def structure_results(group, structure)
       structure["missing"].map do |rel|
-        { "rel" => rel, "kind" => "structure", "status" => "fail", "detail" => "missing in current" }
+        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => "fail",
+          "detail" => "missing in current" }
       end + structure["extra"].map do |rel|
-        { "rel" => rel, "kind" => "structure", "status" => "fail",
+        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => "fail",
           "detail" => "extra in current (not in oracle)" }
       end
     end
 
-    def unknown_result(rel)
-      { "rel" => rel, "kind" => "unknown", "status" => "fail",
+    def unknown_result(group, rel)
+      { "group" => group.name, "rel" => rel, "kind" => "unknown", "status" => "fail",
         "detail" => "no adapter for #{File.extname(rel)}" }
     end
 
-    def ctx
-      Adapters::Ctx.new(max_diff_ratio: @config.max_diff_ratio, report_dir: @config.report_dir)
-    end
-
-    def sequential(entries, progress)
+    def sequential(group, ctx, entries, progress)
       entries.map do |rel, adapter|
-        run_one(rel, adapter).tap { |r| progress&.result(r) }
+        run_one(group, ctx, rel, adapter).tap { |r| progress&.result(r) }
       end
     end
 
-    def run_one(rel, adapter)
-      result = adapter.call(rel, File.join(@config.oracle_path, rel),
-                            File.join(@config.current_path, rel), ctx)
-      result.merge("rel" => rel)
+    def run_one(group, ctx, rel, adapter)
+      result = adapter.call(rel, File.join(group.oracle_path, rel),
+                            File.join(group.current_path, rel), ctx)
+      result.merge("rel" => rel, "group" => group.name)
     rescue StandardError => e
-      { "rel" => rel, "kind" => "error", "status" => "fail", "detail" => "#{e.class}: #{e.message}" }
+      { "group" => group.name, "rel" => rel, "kind" => "error", "status" => "fail",
+        "detail" => "#{e.class}: #{e.message}" }
     end
 
-    def parallel(entries, workers, progress)
+    def parallel(group, ctx, entries, workers, progress)
       pipes = Array.new(workers) { IO.pipe }
-      pids = spawn_workers(pipes, entries, workers)
+      pids = spawn_workers(pipes, group, ctx, entries, workers)
       pipes.each { |_rd, wr| wr.close }
       results = drain(pipes.map(&:first), progress)
       crashed = pids.map do |pid|
@@ -105,13 +126,13 @@ module Twinshot
       results
     end
 
-    def spawn_workers(pipes, entries, workers)
+    def spawn_workers(pipes, group, ctx, entries, workers)
       pipes.each_with_index.map do |(_rd, wr), index|
         Process.fork do
           pipes.each { |rd, _wr| rd.close }
           wr.sync = true
           entries.select.with_index { |_entry, i| i % workers == index }.each do |rel, adapter|
-            wr.write(JSON.generate(run_one(rel, adapter)) + "\n")
+            wr.write(JSON.generate(run_one(group, ctx, rel, adapter)) + "\n")
           end
           exit!(0) # skip parent's at_exit handlers
         end
@@ -154,14 +175,16 @@ module Twinshot
       [jobs || Etc.nprocessors, MAX_WORKERS, work_size].min
     end
 
-    def summarize(results)
+    def summarize(results, group_stats)
+      order = group_stats.each_with_index.to_h { |g, i| [g["name"], i] }
       sorted = results.sort_by do |r|
-        [File.dirname(r["rel"]), r["status"] == "pass" ? 1 : 0, File.basename(r["rel"])]
+        [order[r["group"]], File.dirname(r["rel"]), r["status"] == "pass" ? 1 : 0, File.basename(r["rel"])]
       end
       {
         "total" => sorted.size,
         "passed" => sorted.count { |r| r["status"] == "pass" },
         "failed" => sorted.count { |r| r["status"] == "fail" },
+        "groups" => group_stats,
         "results" => sorted
       }
     end

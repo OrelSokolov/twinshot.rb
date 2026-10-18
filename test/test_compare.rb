@@ -43,6 +43,43 @@ class TestCompare < Minitest::Test
     end
   end
 
+  def test_multiple_groups_tag_results_and_reports
+    Dir.mktmpdir do |tmp|
+      config = build_fixture(tmp)
+      config_path = File.join(tmp, "twinshot.yml")
+      File.write(config_path, File.read(config_path) + <<~YAML)
+        groups:
+          dogs:
+            oracle: {path: #{File.join(tmp, 'dogs-o')}}
+            current: {path: #{File.join(tmp, 'dogs-c')}}
+      YAML
+      write(File.join(tmp, "dogs-o"), "bark.txt", "woof\n")
+      write(File.join(tmp, "dogs-c"), "bark.txt", "meow\n")
+      config = Twinshot::Config.load(config_path)
+
+      summary = Twinshot::Compare.new(config).run(jobs: 1)
+      Twinshot::Report.new(config, summary).write
+
+      assert_equal %w[default dogs], summary["groups"].map { |g| g["name"] }
+      dogs = summary["results"].select { |r| r["group"] == "dogs" }
+      assert_equal 1, dogs.size
+      assert_equal "fail", dogs.first["status"]
+      assert_equal "default", summary["results"].find { |r| r["rel"] == "a/one.txt" }["group"]
+
+      default_dir = File.join(tmp, "twinshot-report", "default")
+      dogs_dir = File.join(tmp, "twinshot-report", "dogs")
+      assert File.exist?(File.join(default_dir, "report.html"))
+      assert File.exist?(File.join(default_dir, "diffs", "a", "two.png.diff.png"))
+      dogs_html = File.read(File.join(dogs_dir, "report.html"))
+      assert_includes dogs_html, %(data-name="bark.txt")
+      assert_includes dogs_html, "dogs"
+      refute_includes dogs_html, %(data-name="a/one.txt")
+      dogs_summary = JSON.parse(File.read(File.join(dogs_dir, "summary.json")))
+      assert_equal 1, dogs_summary["total"]
+      assert_equal "dogs", dogs_summary["results"].first["group"]
+    end
+  end
+
   private
 
   def build_fixture(tmp)

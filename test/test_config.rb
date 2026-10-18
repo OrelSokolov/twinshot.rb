@@ -16,7 +16,7 @@ class TestConfig < Minitest::Test
       assert_equal File.expand_path("artifacts/rails", dir), config.oracle_path
       assert_equal "/abs/crails", config.current_path
       assert_equal 0.002, config.max_diff_ratio
-      assert_equal File.join(dir, "twinshot-report"), config.report_dir
+      assert_equal File.join(dir, "twinshot-report", "default"), config.report_dir
       assert_nil config.generate_command("oracle")
     end
   end
@@ -66,6 +66,87 @@ class TestConfig < Minitest::Test
       config = Twinshot::Config.load(write_config(dir, "oracle: {path: o}\ncurrent: {path: c}\n"))
       error = assert_raises(Twinshot::Config::Error) { config.generate_command("middle") }
       assert_match(/unknown side/, error.message)
+    end
+  end
+
+  def test_default_group_is_always_first
+    Dir.mktmpdir do |dir|
+      config = Twinshot::Config.load(write_config(dir, <<~YAML))
+        oracle: {path: o}
+        current: {path: c}
+        groups:
+          dogs:
+            oracle: {path: dogs-o}
+            current: {path: dogs-c}
+      YAML
+      assert_equal ["default", "dogs"], config.groups.map(&:name)
+      assert_equal File.expand_path("o", dir), config.groups.first.oracle_path
+      assert_equal File.expand_path("dogs-c", dir), config.groups.last.current_path
+    end
+  end
+
+  def test_named_group_paths_generate_and_report_dir
+    Dir.mktmpdir do |dir|
+      config = Twinshot::Config.load(write_config(dir, <<~YAML))
+        oracle: {path: o}
+        current: {path: c}
+        groups:
+          dogs:
+            oracle: {path: dogs-o, generate: bin/record --dogs}
+            current: {path: /abs/dogs-c}
+      YAML
+      group = config.group("dogs")
+      assert_equal File.expand_path("dogs-o", dir), group.oracle_path
+      assert_equal "/abs/dogs-c", group.current_path
+      assert_equal "bin/record --dogs", group.generate_command("oracle")
+      assert_nil group.generate_command("current")
+      assert_equal File.join(dir, "twinshot-report", "dogs"), config.report_dir(group)
+      assert_equal File.join(dir, "twinshot-report", "default"), config.report_dir
+    end
+  end
+
+  def test_named_group_missing_side_path_raises
+    Dir.mktmpdir do |dir|
+      path = write_config(dir, <<~YAML)
+        oracle: {path: o}
+        current: {path: c}
+        groups:
+          dogs:
+            current: {path: dogs-c}
+      YAML
+      error = assert_raises(Twinshot::Config::Error) { Twinshot::Config.load(path) }
+      assert_match(/groups\.dogs\.oracle\.path is required/, error.message)
+    end
+  end
+
+  def test_reserved_group_name_raises
+    Dir.mktmpdir do |dir|
+      path = write_config(dir, <<~YAML)
+        oracle: {path: o}
+        current: {path: c}
+        groups:
+          default:
+            oracle: {path: x}
+            current: {path: y}
+      YAML
+      error = assert_raises(Twinshot::Config::Error) { Twinshot::Config.load(path) }
+      assert_match(/reserved/, error.message)
+    end
+  end
+
+  def test_groups_not_a_mapping_raises
+    Dir.mktmpdir do |dir|
+      path = write_config(dir, "oracle: {path: o}\ncurrent: {path: c}\ngroups: [dogs]\n")
+      error = assert_raises(Twinshot::Config::Error) { Twinshot::Config.load(path) }
+      assert_match(/groups must be a mapping/, error.message)
+    end
+  end
+
+  def test_unknown_group_raises
+    Dir.mktmpdir do |dir|
+      config = Twinshot::Config.load(write_config(dir, "oracle: {path: o}\ncurrent: {path: c}\n"))
+      error = assert_raises(Twinshot::Config::Error) { config.group("cats") }
+      assert_match(/unknown group: "cats"/, error.message)
     end
   end
 

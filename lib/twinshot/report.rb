@@ -11,38 +11,55 @@ module Twinshot
   # per-side copy buttons (absolute snapshot path — handy to paste into an
   # agent). CSS and JS are inlined; screenshots referenced by relative paths.
   # White-blue high-contrast theme with a thick divider between the pair.
+  # Every group gets its own folder twinshot-report/<name>/ with a full
+  # report.html + summary.json + diffs/ set for its results only.
   class Report
     def initialize(config, summary)
       @config = config
       @summary = summary
-      @report_dir = config.report_dir
-      report = Pathname.new(@report_dir)
-      @oracle_prefix = Pathname.new(config.oracle_path).relative_path_from(report).to_s
-      @current_prefix = Pathname.new(config.current_path).relative_path_from(report).to_s
     end
 
     def write
-      FileUtils.mkdir_p(@report_dir)
-      File.write(File.join(@report_dir, "report.html"), render)
-      File.write(File.join(@report_dir, "summary.json"), JSON.pretty_generate(@summary) + "\n")
+      @summary["groups"].each do |group_stats|
+        group = @config.group(group_stats["name"])
+        results = @summary["results"].select { |r| r["group"] == group.name }
+        write_group(group, {
+                      "total" => group_stats["total"],
+                      "passed" => group_stats["passed"],
+                      "failed" => group_stats["failed"],
+                      "results" => results
+                    })
+      end
       self
     end
 
     private
 
+    def write_group(group, summary)
+      @group = group
+      @report_dir = @config.report_dir(group)
+      report = Pathname.new(@report_dir)
+      @oracle_prefix = Pathname.new(group.oracle_path).relative_path_from(report).to_s
+      @current_prefix = Pathname.new(group.current_path).relative_path_from(report).to_s
+      FileUtils.mkdir_p(@report_dir)
+      File.write(File.join(@report_dir, "report.html"), render(group, summary))
+      File.write(File.join(@report_dir, "summary.json"), JSON.pretty_generate(summary) + "\n")
+    end
+
     def esc(text)
       CGI.escapeHTML(text.to_s)
     end
 
-    def render
+    def render(group, summary)
       <<~HTML
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-        <title>twinshot — 1:1 parity</title>
+        <title>twinshot — 1:1 parity · #{esc group.name}</title>
         <style>#{CSS}</style></head>
         <body data-filter="all" data-mode="side" data-heat="on">
         <header id="topbar">
           <b>twinshot</b>
-          <span id="stats"><span class="ok">#{@summary['passed']}/#{@summary['total']} pass</span> <span class="bad">#{@summary['failed']} fail</span></span>
+          <span id="gname">#{esc group.name}</span>
+          <span id="stats"><span class="ok">#{summary['passed']}/#{summary['total']} pass</span> <span class="bad">#{summary['failed']} fail</span></span>
           <input id="q" type="search" placeholder="поиск по имени…">
           <span class="seg">
             <button type="button" data-f="all" class="active">все</button><button type="button" data-f="fail">провалы</button><button type="button" data-f="pass">ок</button>
@@ -55,18 +72,18 @@ module Twinshot
           </span>
           <span class="hint">n/p — навигация · ⧉ — копировать путь</span>
         </header>
-        #{groups}
+        #{gallery(summary)}
         </body><script>#{JS}</script></html>
       HTML
     end
 
-    def groups
-      @summary["results"]
+    def gallery(summary)
+      summary["results"]
         .group_by { |r| File.dirname(r["rel"]) }
-        .sort.map { |dir, results| group(dir, results) }.join
+        .sort.map { |dir, results| section(dir, results) }.join
     end
 
-    def group(dir, results)
+    def section(dir, results)
       title = dir == "." ? "(root)" : dir
       <<~HTML
         <section class="group" data-dir="#{esc dir}">
@@ -101,11 +118,11 @@ module Twinshot
     def copy_buttons(result)
       rel = result["rel"]
       if result["kind"] == "structure"
-        label, root = result["detail"].start_with?("missing") ? ["oracle", @config.oracle_path] : ["current", @config.current_path]
+        label, root = result["detail"].start_with?("missing") ? ["oracle", @group.oracle_path] : ["current", @group.current_path]
         copy_button(label, File.join(root, rel))
       else
-        copy_button("oracle", File.join(@config.oracle_path, rel)) +
-          copy_button("current", File.join(@config.current_path, rel))
+        copy_button("oracle", File.join(@group.oracle_path, rel)) +
+          copy_button("current", File.join(@group.current_path, rel))
       end
     end
 
@@ -181,6 +198,7 @@ module Twinshot
       body{font:14px system-ui,sans-serif;margin:0;background:#d9e2ec}
       #topbar{position:sticky;top:0;z-index:30;display:flex;gap:14px;align-items:center;background:linear-gradient(135deg,#ffffff 0%,#cfe6ff 100%);border-bottom:3px solid #1976d2;padding:10px 14px;white-space:nowrap;box-shadow:0 2px 6px rgba(13,71,161,.25)}
       #topbar b{font-size:15px;color:#0d47a1}
+      #gname{font:600 12px ui-monospace,monospace;color:#0d47a1;background:#e3f2fd;border:1px solid #64b5f6;padding:1px 6px;border-radius:3px}
       #q{width:220px;padding:3px 8px;border:1px solid #64b5f6;border-radius:3px;background:#fff}
       #stats .ok{color:#fff;background:#2e7d32;padding:1px 6px;border-radius:3px}
       #stats .bad{color:#fff;background:#d32f2f;padding:1px 6px;border-radius:3px}
