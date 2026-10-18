@@ -118,6 +118,7 @@ module Twinshot
       oracle_src = "#{@oracle_prefix}/#{rel}"
       current_src = "#{@current_prefix}/#{rel}"
       heat = heat_layer(result["heat"])
+      badge = current_badge(result)
       <<~HTML
         <div class="pair">
           <figure class="side-a">
@@ -130,11 +131,24 @@ module Twinshot
             <input class="slider" type="range" min="0" max="100" value="50" aria-label="compare slider">
           </figure>
           <figure class="side-b">
-            <figcaption>current</figcaption>
+            <figcaption>current #{badge}</figcaption>
             <div class="imgwrap"><img loading="lazy" src="#{esc current_src}" alt="current">#{heat}</div>
           </figure>
         </div>
       HTML
+    end
+
+    # Right-side caption badge: makes it obvious the right image IS the
+    # current snapshot even when it looks identical to the oracle.
+    def current_badge(result)
+      if result["detail"] == "bytes equal"
+        %(<span class="cbadge ok">≡ byte-equal</span>)
+      elsif result["ratio"]
+        css = result["status"] == "pass" ? "ok" : "warn"
+        %(<span class="cbadge #{css}">#{format('%.3f%%', result['ratio'] * 100)}</span>)
+      else
+        %(<span class="cbadge warn">#{esc result['detail']}</span>)
+      end
     end
 
     # Purple overlay marking divergence zones: one positioned <i> per heat
@@ -191,6 +205,9 @@ module Twinshot
       .pair figure{flex:1 1 50%;min-width:0;margin:0}
       .pair figure+figure{border-left:5px solid #1976d2}
       .pair figcaption{padding:5px 10px;font:700 12px ui-monospace,monospace;color:#0d47a1;background:linear-gradient(180deg,#f5faff,#dbeeff);border-bottom:2px solid #90caf9}
+      .cbadge{float:right;font:700 10px system-ui;padding:1px 6px;border-radius:3px}
+      .cbadge.ok{background:#c8e6c9;color:#1b5e20}
+      .cbadge.warn{background:#ffcdd2;color:#b71c1c}
       .imgwrap{position:relative}
       .pair img{display:block;width:100%;height:auto}
       .overlay{display:none}
