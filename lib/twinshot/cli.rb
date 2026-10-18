@@ -29,6 +29,7 @@ module Twinshot
     def call
       global_parser.order!(@argv)
       return version_text if @version
+
       if @helped
         @out.puts global_parser
         return EXIT_OK
@@ -191,10 +192,14 @@ module Twinshot
         targets = [[group, command]]
       end
 
-      targets.all? do |group, command|
+      if targets.all? do |group, command|
         @out.puts "twinshot: [#{group.name}] #{command}"
         system(command, chdir: config.root)
-      end ? EXIT_OK : EXIT_DIFF
+      end
+        EXIT_OK
+      else
+        EXIT_DIFF
+      end
     end
 
     def help

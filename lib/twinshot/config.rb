@@ -42,9 +42,7 @@ module Twinshot
       end
 
       def generate_command(side)
-        unless SIDES.include?(side)
-          raise Error, "unknown side: #{side.inspect} (expected oracle or current)"
-        end
+        raise Error, "unknown side: #{side.inspect} (expected oracle or current)" unless SIDES.include?(side)
 
         value = @data.dig(side, "generate")
         case value
@@ -55,7 +53,7 @@ module Twinshot
       end
 
       def validate!
-        raise Error, "#{label.empty? ? 'group' : label} must be a mapping" unless @data.is_a?(Hash)
+        raise Error, "#{label.empty? ? "group" : label} must be a mapping" unless @data.is_a?(Hash)
 
         oracle_path
         current_path
@@ -70,9 +68,7 @@ module Twinshot
 
       def side_path(side)
         value = @data.dig(side, "path")
-        unless value.is_a?(String) && !value.empty?
-          raise Error, "#{prefix}#{side}.path is required in #{@file}"
-        end
+        raise Error, "#{prefix}#{side}.path is required in #{@file}" unless value.is_a?(String) && !value.empty?
 
         File.expand_path(value, @root)
       end
@@ -115,7 +111,7 @@ module Twinshot
 
     def group(name)
       groups.find { |g| g.name == name } ||
-        raise(Error, "unknown group: #{name.inspect} (expected #{groups.map(&:name).join(', ')})")
+        raise(Error, "unknown group: #{name.inspect} (expected #{groups.map(&:name).join(", ")})")
     end
 
     # Default-group delegates (compatibility with the pre-groups API).
@@ -157,9 +153,7 @@ module Twinshot
 
     def named_groups
       groups_data = @data["groups"] || {}
-      unless groups_data.is_a?(Hash)
-        raise Error, "groups must be a mapping of name to oracle/current sides"
-      end
+      raise Error, "groups must be a mapping of name to oracle/current sides" unless groups_data.is_a?(Hash)
 
       groups_data.map do |name, data|
         unless name.is_a?(String) && !name.empty?

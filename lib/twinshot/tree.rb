@@ -9,7 +9,7 @@ module Twinshot
 
     # Sorted relative paths of all files under root (hidden files included).
     def files(root)
-      prefix = "#{root.chomp('/')}/"
+      prefix = "#{root.chomp("/")}/"
       [].tap do |out|
         Find.find(root) do |path|
           out << path.delete_prefix(prefix) if path != root && File.file?(path)

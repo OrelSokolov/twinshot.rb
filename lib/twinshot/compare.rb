@@ -34,7 +34,7 @@ module Twinshot
 
       def crashed?
         Process.wait(pid)
-        !$?.success?
+        !Process.last_status.success?
       end
     end
 
@@ -82,8 +82,14 @@ module Twinshot
       progress&.banner(@config, group: group, oracle_count: oracle_files.size, current_count: current_files.size,
                                 total: total, workers: workers)
       results = []
-      structure_results(group, structure).each { |r| results << r; progress&.result(r) }
-      unknown.each { |r| results << r; progress&.result(r) }
+      structure_results(group, structure).each do |r|
+        results << r
+        progress&.result(r)
+      end
+      unknown.each do |r|
+        results << r
+        progress&.result(r)
+      end
 
       file_results = if workers > 1
                        parallel(group, ctx, comparable, workers, progress)

@@ -38,5 +38,5 @@ payload.fetch("rels").each_with_index do |rel, i|
     { "group" => group, "rel" => rel, "kind" => "error", "status" => "fail",
       "detail" => "#{e.class}: #{e.message}" }
   end
-  $stdout.write(JSON.generate(result) + "\n")
+  $stdout.write("#{JSON.generate(result)}\n")
 end

@@ -30,10 +30,10 @@ class TestCompare < Minitest::Test
       assert_includes report_html, %(data-name="e/only-current.txt")
       agent_md = File.read(File.join(config.report_dir, Twinshot::Config::AGENT_REPORT))
       assert_includes agent_md, "### a/two.png"
-      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, 'a/two.png')}"
-      assert_includes agent_md, "- current: #{File.join(config.current_path, 'a/two.png')}"
+      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, "a/two.png")}"
+      assert_includes agent_md, "- current: #{File.join(config.current_path, "a/two.png")}"
       assert_includes agent_md, "### d/only-oracle.txt"
-      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, 'd/only-oracle.txt')}"
+      assert_includes agent_md, "- oracle: #{File.join(config.oracle_path, "d/only-oracle.txt")}"
       assert_includes agent_md, "## Passed (2)"
       summary_json = JSON.parse(File.read(File.join(config.report_dir, "summary.json")))
       assert_equal summary["total"], summary_json["total"]
@@ -51,13 +51,13 @@ class TestCompare < Minitest::Test
 
   def test_multiple_groups_tag_results_and_reports
     Dir.mktmpdir do |tmp|
-      config = build_fixture(tmp)
+      build_fixture(tmp)
       config_path = File.join(tmp, "twinshot.yml")
       File.write(config_path, File.read(config_path) + <<~YAML)
         groups:
           dogs:
-            oracle: {path: #{File.join(tmp, 'dogs-o')}}
-            current: {path: #{File.join(tmp, 'dogs-c')}}
+            oracle: {path: #{File.join(tmp, "dogs-o")}}
+            current: {path: #{File.join(tmp, "dogs-c")}}
       YAML
       write(File.join(tmp, "dogs-o"), "bark.txt", "woof\n")
       write(File.join(tmp, "dogs-c"), "bark.txt", "meow\n")
@@ -66,7 +66,7 @@ class TestCompare < Minitest::Test
       summary = Twinshot::Compare.new(config).run(jobs: 1)
       Twinshot::Report.new(config, summary).write
 
-      assert_equal %w[default dogs], summary["groups"].map { |g| g["name"] }
+      assert_equal(%w[default dogs], summary["groups"].map { |g| g["name"] })
       dogs = summary["results"].select { |r| r["group"] == "dogs" }
       assert_equal 1, dogs.size
       assert_equal "fail", dogs.first["status"]

@@ -162,7 +162,10 @@ class TestCli < Minitest::Test
       make_trees(tmp, diff: false)
       config = config_path(tmp, tmp)
       opened = []
-      Twinshot::Opener.stub(:open, ->(path) { opened << path; raise Twinshot::Opener::Error, "`open boom` failed" }) do
+      Twinshot::Opener.stub(:open, lambda { |path|
+        opened << path
+        raise Twinshot::Opener::Error, "`open boom` failed"
+      }) do
         assert_equal 0, run_cli("-c", config, "compare", "--no-open", tty: true)
         assert_empty opened
         assert_equal 0, run_cli("-c", config, "compare", "--open", tty: true)
@@ -185,7 +188,8 @@ class TestCli < Minitest::Test
       make_trees(tmp, diff: false)
       marker = File.join(tmp, "generated")
       config = config_path(tmp, tmp)
-      File.write(config, File.read(config).sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch generated"))
+      File.write(config,
+                 File.read(config).sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch generated"))
       assert_equal 0, run_cli("-c", config, "generate", "oracle")
       assert File.exist?(marker)
     end
@@ -216,7 +220,7 @@ class TestCli < Minitest::Test
       make_trees(tmp, diff: false)
       config = config_path(tmp, tmp)
       content = File.read(config)
-                     .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch default-generated")
+                    .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch default-generated")
       content += <<~YAML
         groups:
           dogs:

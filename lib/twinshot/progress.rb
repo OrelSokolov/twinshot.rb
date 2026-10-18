@@ -23,7 +23,7 @@ module Twinshot
       @out.puts "  oracle   #{display_path(group.oracle_path)} (#{oracle_count} files)"
       @out.puts "  current  #{display_path(group.current_path)} (#{current_count} files)"
       mode = workers == 1 ? "sequential" : "#{workers} workers"
-      @out.puts "  #{total} results · #{mode} · png threshold #{format('%.2f', config.max_diff_ratio * 100)}%"
+      @out.puts "  #{total} results · #{mode} · png threshold #{format("%.2f", config.max_diff_ratio * 100)}%"
       @out.puts
     end
 
@@ -35,7 +35,7 @@ module Twinshot
       mark = passed ? paint("✓", :green) : paint("✗", :red)
       detail = result["detail"].to_s
       detail = paint(detail, :red) unless passed
-      rel = result["group"] ? "#{result['group']}/#{result['rel']}" : result["rel"]
+      rel = result["group"] ? "#{result["group"]}/#{result["rel"]}" : result["rel"]
       @out.puts format("  [%3d/%-3d] %s %s — %s", @index, @total || "?", mark, rel, detail)
     end
 
@@ -44,13 +44,13 @@ module Twinshot
 
       @out.puts
       if summary["failed"].zero?
-        @out.puts paint("OK: #{summary['passed']}/#{summary['total']} passed", :green)
+        @out.puts paint("OK: #{summary["passed"]}/#{summary["total"]} passed", :green)
       else
         breakdown = summary["results"]
-                          .select { |r| r["status"] == "fail" }
-                          .group_by { |r| r["kind"] }
-                          .map { |kind, rs| "#{kind}: #{rs.size}" }.join(", ")
-        @out.puts paint("FAIL: #{summary['failed']}/#{summary['total']} failed (#{breakdown})", :red)
+                    .select { |r| r["status"] == "fail" }
+                    .group_by { |r| r["kind"] }
+                    .map { |kind, rs| "#{kind}: #{rs.size}" }.join(", ")
+        @out.puts paint("FAIL: #{summary["failed"]}/#{summary["total"]} failed (#{breakdown})", :red)
       end
       @out.puts "time: #{format_duration(elapsed)}" if elapsed
       @out.puts "report: #{report_path}"

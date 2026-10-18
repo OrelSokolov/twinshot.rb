@@ -3,6 +3,7 @@
 require "digest"
 
 module Twinshot
+  # Adapter implementations (the contract lives in adapters.rb).
   module Adapters
     # Byte-for-byte comparison via SHA-256.
     module Binary

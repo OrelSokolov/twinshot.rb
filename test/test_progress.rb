@@ -12,7 +12,8 @@ class TestProgress < Minitest::Test
     config = make_config
     progress.banner(config, group: config.groups.first, oracle_count: 2, current_count: 3, total: 4, workers: 2)
     [
-      { "group" => "default", "rel" => "a/one.txt", "kind" => "txt", "status" => "pass", "detail" => "lines identical" },
+      { "group" => "default", "rel" => "a/one.txt", "kind" => "txt", "status" => "pass",
+        "detail" => "lines identical" },
       { "group" => "default", "rel" => "a/two.png", "kind" => "png", "status" => "fail", "detail" => "6.2% px differ" }
     ].each { |r| progress.result(r) }
     progress.summary({ "total" => 2, "passed" => 1, "failed" => 1,
@@ -22,9 +23,9 @@ class TestProgress < Minitest::Test
     assert_includes lines[0], "twinshot — 1:1 parity · group default"
     assert_match(/oracle\s+\S+ \(2 files\)/, lines[1])
     assert_match(/4 results · 2 workers/, lines[3])
-    assert_match(/\[ *1\/4 *\] ✓ default\/a\/one\.txt — lines identical/, lines[5])
-    assert_match(/\[ *2\/4 *\] ✗ default\/a\/two\.png — 6\.2% px differ/, lines[6])
-    assert_match(/FAIL: 1\/2 failed \(png: 1\)/, lines[8])
+    assert_match(%r{\[ *1/4 *\] ✓ default/a/one\.txt — lines identical}, lines[5])
+    assert_match(%r{\[ *2/4 *\] ✗ default/a/two\.png — 6\.2% px differ}, lines[6])
+    assert_match(%r{FAIL: 1/2 failed \(png: 1\)}, lines[8])
     assert_includes lines[9], "report: /tmp/report.html"
     refute_includes out.string, "\e[" # no ANSI when not a tty
   end
@@ -63,8 +64,8 @@ class TestProgress < Minitest::Test
       summary = Twinshot::Compare.new(config).run(jobs: 2, progress: progress)
       progress.summary(summary, "/tmp/report.html")
       lines = out.string.lines
-      assert_equal summary["total"], lines.count { |l| l.include?("[") && (l.include?("✓") || l.include?("✗")) }
-      assert_match(/FAIL: 1\/1 failed/, out.string)
+      assert_equal(summary["total"], lines.count { |l| l.include?("[") && (l.include?("✓") || l.include?("✗")) })
+      assert_match(%r{FAIL: 1/1 failed}, out.string)
     end
   end
 
@@ -78,7 +79,7 @@ class TestProgress < Minitest::Test
   end
 
   def write_config(content)
-    @config_path ||= begin
+    @write_config ||= begin
       path = File.join(Dir.mktmpdir("twinshot-progress"), "twinshot.yml")
       File.write(path, content)
       path

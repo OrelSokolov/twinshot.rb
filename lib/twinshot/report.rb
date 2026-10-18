@@ -13,10 +13,10 @@ module Twinshot
   #   default), image compare modes (side-by-side / slider / blink) and
   #   per-side copy buttons (absolute snapshot path — handy to paste into an
   #   agent). CSS and JS are inlined; screenshots referenced by relative paths.
-    #   Theme built on Radix Colors (radix-ui.com/colors), light scales:
-    #   slate neutrals, blue accent, red danger, green success. Each step
-    #   has a fixed role (1-2 backgrounds, 3-6 borders/tints, 9 solid
-    #   fills, 11-12 text) with guaranteed contrast for that pairing.
+  #   Theme built on Radix Colors (radix-ui.com/colors), light scales:
+  #   slate neutrals, blue accent, red danger, green success. Each step
+  #   has a fixed role (1-2 backgrounds, 3-6 borders/tints, 9 solid
+  #   fills, 11-12 text) with guaranteed contrast for that pairing.
   # - report_for_agent.md — markdown for feeding to LLM agents: per-file
   #   metadata (paths, kind, detail, ratio) plus the divergence code snippets
   #   as unified-style ```diff fences — the same line diffs the human report
@@ -56,7 +56,7 @@ module Twinshot
       FileUtils.mkdir_p(@report_dir)
       File.write(File.join(@report_dir, Config::HUMAN_REPORT), render(group, summary))
       File.write(File.join(@report_dir, Config::AGENT_REPORT), agent_markdown(summary))
-      File.write(File.join(@report_dir, "summary.json"), JSON.pretty_generate(summary) + "\n")
+      File.write(File.join(@report_dir, "summary.json"), %(#{JSON.pretty_generate(summary)}\n))
     end
 
     def esc(text)
@@ -66,7 +66,7 @@ module Twinshot
     def render(group, summary)
       # Failures are what the report is opened for; a fully green report
       # falls back to "all" so the gallery isn't empty on open.
-      default_filter = summary["failed"].to_i > 0 ? "fail" : "all"
+      default_filter = summary["failed"].to_i.positive? ? "fail" : "all"
       active = ->(f) { %( class="active") if f == default_filter }
       <<~HTML
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
@@ -76,10 +76,10 @@ module Twinshot
         <header id="topbar">
           <b>twinshot</b>
           <span id="gname">#{esc group.name}</span>
-          <span id="stats"><span class="ok">#{summary['passed']}/#{summary['total']} pass</span> <span class="bad">#{summary['failed']} fail</span></span>
+          <span id="stats"><span class="ok">#{summary["passed"]}/#{summary["total"]} pass</span> <span class="bad">#{summary["failed"]} fail</span></span>
           <input id="q" type="search" placeholder="поиск по имени…">
           <span class="seg">
-            <button type="button" data-f="all"#{active.call('all')}>все</button><button type="button" data-f="fail"#{active.call('fail')}>провалы</button><button type="button" data-f="pass"#{active.call('pass')}>ок</button>
+            <button type="button" data-f="all"#{active.call("all")}>все</button><button type="button" data-f="fail"#{active.call("fail")}>провалы</button><button type="button" data-f="pass"#{active.call("pass")}>ок</button>
           </span>
           <span class="seg">
             <button type="button" data-m="side" class="active">рядом</button><button type="button" data-m="slider">слайдер</button><button type="button" data-m="blink">мигание</button>
@@ -114,16 +114,16 @@ module Twinshot
              elsif result["diff"]
                text_diff(result)
              else
-               %(<p class="note">#{esc result['detail']}</p>)
+               %(<p class="note">#{esc result["detail"]}</p>)
              end
       diff_link = if result["diff_image"]
-                    %( <a href="#{esc result['diff_image']}">diff</a>)
+                    %( <a href="#{esc result["diff_image"]}">diff</a>)
                   else
                     ""
                   end
-      "<div class=\"shot #{result['status']}\" data-name=\"#{esc rel}\">" \
-        "<h3>#{esc rel}<span class=\"badge\">#{esc result['kind']}</span>#{copy_buttons(result)}#{diff_link} " \
-        "<span class=\"detail\">#{esc result['detail']}</span></h3>" \
+      "<div class=\"shot #{result["status"]}\" data-name=\"#{esc rel}\">" \
+        "<h3>#{esc rel}<span class=\"badge\">#{esc result["kind"]}</span>#{copy_buttons(result)}#{diff_link} " \
+        "<span class=\"detail\">#{esc result["detail"]}</span></h3>" \
         "#{body}</div>"
     end
 
@@ -132,7 +132,12 @@ module Twinshot
     def copy_buttons(result)
       rel = result["rel"]
       if result["kind"] == "structure"
-        label, root = result["detail"].start_with?("missing") ? ["oracle", @group.oracle_path] : ["current", @group.current_path]
+        label, root = if result["detail"].start_with?("missing")
+                        ["oracle",
+                         @group.oracle_path]
+                      else
+                        ["current", @group.current_path]
+                      end
         copy_button(label, File.join(root, rel))
       else
         copy_button("oracle", File.join(@group.oracle_path, rel)) +
@@ -176,9 +181,9 @@ module Twinshot
         %(<span class="cbadge ok">≡ byte-equal</span>)
       elsif result["ratio"]
         css = result["status"] == "pass" ? "ok" : "warn"
-        %(<span class="cbadge #{css}">#{format('%.3f%%', result['ratio'] * 100)}</span>)
+        %(<span class="cbadge #{css}">#{format("%.3f%%", result["ratio"] * 100)}</span>)
       else
-        %(<span class="cbadge warn">#{esc result['detail']}</span>)
+        %(<span class="cbadge warn">#{esc result["detail"]}</span>)
       end
     end
 
@@ -197,14 +202,15 @@ module Twinshot
         top = row * heat["cell"].fdiv(heat["h"]) * 100
         width = [heat["cell"], heat["w"] - col * heat["cell"]].min.fdiv(heat["w"]) * 100
         height = [heat["cell"], heat["h"] - row * heat["cell"]].min.fdiv(heat["h"]) * 100
-        %(<i style="left:#{left.round(2)}%;top:#{top.round(2)}%;width:#{width.round(2)}%;height:#{height.round(2)}%;background:rgba(160,32,240,0.3)"></i>)
+        box = "left:#{left.round(2)}%;top:#{top.round(2)}%;width:#{width.round(2)}%;height:#{height.round(2)}%"
+        %(<i style="#{box};background:rgba(160,32,240,0.3)"></i>)
       end.join
       %(<div class="heat" aria-hidden="true">#{cells}</div>)
     end
 
     def text_diff(result)
       rel = result["rel"]
-      lines = result["diff"].map { |e| %(<span class="#{e['t']}">#{esc e['text']}</span>) }.join
+      lines = result["diff"].map { |e| %(<span class="#{e["t"]}">#{esc e["text"]}</span>) }.join
       <<~HTML
         <pre class="diff">#{lines}</pre>
         <p class="note">оригиналы: <a href="#{esc File.join(@oracle_prefix, rel)}">oracle</a> · <a href="#{esc File.join(@current_prefix, rel)}">current</a></p>
@@ -223,13 +229,13 @@ module Twinshot
         "# twinshot — 1:1 parity · group #{@group.name}", "",
         "- oracle: #{@group.oracle_path}",
         "- current: #{@group.current_path}",
-        "- total: #{summary['total']} · passed: #{summary['passed']} · failed: #{summary['failed']}",
+        "- total: #{summary["total"]} · passed: #{summary["passed"]} · failed: #{summary["failed"]}",
         "",
         "## Failures (#{failed.size})", ""
       ]
       failed.each { |r| lines.concat(agent_section(r)) }
       lines.concat(["## Passed (#{passed.size})", ""])
-      passed.each { |r| lines << "- `#{r['rel']}` — #{r['kind']}: #{r['detail']}" }
+      passed.each { |r| lines << "- `#{r["rel"]}` — #{r["kind"]}: #{r["detail"]}" }
       lines << ""
       lines.join("\n")
     end
@@ -237,9 +243,9 @@ module Twinshot
     def agent_section(result)
       rel = result["rel"]
       lines = ["### #{rel}", "",
-               "- kind: #{result['kind']}",
-               "- status: #{result['status']}",
-               "- detail: #{result['detail']}"]
+               "- kind: #{result["kind"]}",
+               "- status: #{result["status"]}",
+               "- detail: #{result["detail"]}"]
       if result["kind"] == "structure"
         side = result["detail"].start_with?("missing") ? "oracle" : "current"
         root = side == "oracle" ? @group.oracle_path : @group.current_path
@@ -248,8 +254,8 @@ module Twinshot
         lines << "- oracle: #{File.join(@group.oracle_path, rel)}"
         lines << "- current: #{File.join(@group.current_path, rel)}"
       end
-      lines << "- ratio: #{format('%.4f', result['ratio'])}" if result["ratio"]
-      lines << "- diff image: #{result['diff_image']}" if result["diff_image"]
+      lines << "- ratio: #{format("%.4f", result["ratio"])}" if result["ratio"]
+      lines << "- diff image: #{result["diff_image"]}" if result["diff_image"]
       lines << ""
       if result["diff"]
         lines << "````diff"
@@ -264,9 +270,9 @@ module Twinshot
     # triple backticks cannot break out of the block.
     def agent_diff_line(entry)
       case entry["t"]
-      when "same" then " #{entry['text']}"
-      when "del" then "-#{entry['text']}"
-      when "add" then "+#{entry['text']}"
+      when "same" then " #{entry["text"]}"
+      when "del" then "-#{entry["text"]}"
+      when "add" then "+#{entry["text"]}"
       else entry["text"].to_s
       end
     end

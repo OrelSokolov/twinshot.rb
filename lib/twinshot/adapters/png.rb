@@ -10,6 +10,7 @@ require "vips"
 Vips.vips_concurrency_set(1)
 
 module Twinshot
+  # Adapter implementations (the contract lives in adapters.rb).
   module Adapters
     # PNG: bytes fast-path, then pixel-by-pixel via libvips (decode, diff mask
     # and diff image are all native C — a pure-ruby pixel walk was the old
@@ -48,9 +49,7 @@ module Twinshot
                    "ratio" => ratio }
         if diff_count.positive?
           result["heat"] = heat_grid(a, mask)
-          if result["status"] == "fail"
-            result["diff_image"] = write_diff_image(rel, b, mask, ctx)
-          end
+          result["diff_image"] = write_diff_image(rel, b, mask, ctx) if result["status"] == "fail"
         end
         result
       end
@@ -64,14 +63,16 @@ module Twinshot
       # Single-band 0/255 mask: 255 where any band of the two images differs.
       # Both sides are normalized to rgba first so an rgb/rgba (or grey/rgba)
       # pair still compares pixel-wise.
-      def diff_mask(a, b)
-        (rgba(a) != rgba(b)).bandor
+      def diff_mask(oracle, current)
+        (rgba(oracle) != rgba(current)).bandor
       end
 
       def rgba(img)
         case img.bands
-        when 1 then g = img.extract_band(0); g.bandjoin([g, g]).bandjoin_const([255])
-        when 2 then g = img.extract_band(0); g.bandjoin([g, g, img.extract_band(1)])
+        when 1 then g = img.extract_band(0)
+                    g.bandjoin([g, g]).bandjoin_const([255])
+        when 2 then g = img.extract_band(0)
+                    g.bandjoin([g, g, img.extract_band(1)])
         when 3 then img.bandjoin_const([255])
         else img
         end

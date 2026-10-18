@@ -6,3 +6,13 @@ Style/StringLiterals:
 
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
+
+Metrics:
+  Enabled: false
+
+Style/FormatStringToken:
+  Enabled: false
+
+Layout/LineLength:
+  Exclude:
+    - twinshot.gemspec

@@ -141,15 +141,15 @@ class TestAdapters < Minitest::Test
     Vips::Image.black(width, height, bands: 3).add(rgb).pngsave_buffer
   end
 
-  def make_png_with_pixel(color, x, y, pixel)
-    draw_pixel(make_png(color), x, y, pixel)
+  def make_png_with_pixel(color, col, row, pixel)
+    draw_pixel(make_png(color), col, row, pixel)
   end
 
   def solid_png(width, height)
     Vips::Image.black(width, height, bands: 3).add([255, 0, 0]).pngsave_buffer
   end
 
-  def draw_pixel(png, x, y, color)
-    Vips::Image.new_from_buffer(png, "").draw_rect(color, x, y, 1, 1).pngsave_buffer
+  def draw_pixel(png, col, row, color)
+    Vips::Image.new_from_buffer(png, "").draw_rect(color, col, row, 1, 1).pngsave_buffer
   end
 end

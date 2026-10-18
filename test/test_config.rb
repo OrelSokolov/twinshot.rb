@@ -79,7 +79,7 @@ class TestConfig < Minitest::Test
             oracle: {path: dogs-o}
             current: {path: dogs-c}
       YAML
-      assert_equal ["default", "dogs"], config.groups.map(&:name)
+      assert_equal %w[default dogs], config.groups.map(&:name)
       assert_equal File.expand_path("o", dir), config.groups.first.oracle_path
       assert_equal File.expand_path("dogs-c", dir), config.groups.last.current_path
     end

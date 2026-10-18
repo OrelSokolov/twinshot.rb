@@ -3,6 +3,7 @@
 require "nokogiri"
 
 module Twinshot
+  # Adapter implementations (the contract lives in adapters.rb).
   module Adapters
     # HTML compares by DOM structure, not raw text: canonical serialization
     # (comments dropped, whitespace-only text nodes dropped, runs of whitespace
@@ -14,9 +15,7 @@ module Twinshot
       def call(_rel, oracle_file, current_file, _ctx)
         a_lines = canonical_lines(oracle_file)
         b_lines = canonical_lines(current_file)
-        if a_lines == b_lines
-          return { "kind" => "html", "status" => "pass", "detail" => "structure identical" }
-        end
+        return { "kind" => "html", "status" => "pass", "detail" => "structure identical" } if a_lines == b_lines
 
         changed, entries = Adapters.line_diff(a_lines, b_lines)
         { "kind" => "html", "status" => "fail", "detail" => "#{changed} structural line(s) differ",
@@ -38,7 +37,7 @@ module Twinshot
             lines << format("%s%s", "  " * depth, text) unless text.empty?
           when Nokogiri::XML::Node::ELEMENT_NODE
             attrs = child.attributes.sort_by { |name, _| name }
-                              .map { |name, attr| %( #{name}="#{escape_attr(attr.value)}") }.join
+                         .map { |name, attr| %( #{name}="#{escape_attr(attr.value)}") }.join
             lines << format("%s<%s%s>", "  " * depth, child.name.downcase, attrs)
             walk(child, depth + 1, lines)
           end

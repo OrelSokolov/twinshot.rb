@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["Oleg Orlov"]
   spec.email = ["orelcokolov@gmail.com"]
 
-  spec.summary = "1:1 artifact parity: compare two directory trees (oracle vs current) file by file via format adapters"
-  spec.description = "Compares a verified oracle tree against a current tree: structure check first, then per-file similarity through adapters (html by structure, txt by lines, png by pixels, binaries by bytes). Any unknown file is a failure."
+  spec.summary = "Make \"clean room\" implementation of every program in the earth!"
+  spec.description = "Save and compare screenshots of the functionality of other applications you want to copy end to end: compares a verified oracle tree against a current tree (structure check first, then per-file similarity through adapters — html by structure, txt by lines, png by pixels, binaries by bytes). Any unknown file is a failure."
   spec.homepage = "https://github.com/OrelSokolov/twinshot.rb"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"

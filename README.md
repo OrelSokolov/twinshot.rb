@@ -1,8 +1,8 @@
-# Twinshot
+# Twinshot — Make "clean room" implementation of every program in the earth!
 
-1:1 parity between two artifact trees: a proven **oracle** against the
-**current** state. Built for one-to-one application rewrites in different
-languages: two folders of snapshots (screenshots, HTML, text) must match.
+Save and compare screenshots of the functionality of other applications you
+want to copy end to end: a proven **oracle** tree against the **current**
+state, 1:1 parity between two folders of snapshots (screenshots, HTML, text).
 
 ## How it works
 
