@@ -1,4 +1,8 @@
-# <img src="logo.svg" alt="Twinshot logo" width="36" valign="middle"> Twinshot — Make "clean room" implementation of every program in the earth!
+<p align="center">
+  <img src="logo.svg" alt="Twinshot logo" width="256">
+</p>
+
+# Twinshot — Make "clean room" implementation of every program in the earth!
 
 Save and compare screenshots of the functionality of other applications you
 want to copy end to end: a proven **oracle** tree against the **current**
