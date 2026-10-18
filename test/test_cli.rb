@@ -44,7 +44,7 @@ class TestCli < Minitest::Test
       identical = make_trees(tmp, diff: false)
       assert_equal 0, run_cli("-c", config_path(tmp, identical), "compare")
       assert_includes @out.string, "1/1 passed"
-      assert_match(/time: \d+\.\d+s/, @out.string)
+      assert_match(/Done in \d+\.\d+s/, @out.string)
 
       differing = make_trees(tmp, diff: true)
       assert_equal 1, run_cli("-c", config_path(tmp, differing), "compare", "--json")

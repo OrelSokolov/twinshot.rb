@@ -26,7 +26,10 @@ class TestProgress < Minitest::Test
     assert_match(%r{\[ *1/4 *\] ✓ default/a/one\.txt — lines identical}, lines[5])
     assert_match(%r{\[ *2/4 *\] ✗ default/a/two\.png — 6\.2% px differ}, lines[6])
     assert_match(%r{FAIL: 1/2 failed \(png: 1\)}, lines[8])
-    assert_includes lines[9], "report: /tmp/report.html"
+    assert_equal("FAILS:\n", lines[9])
+    assert_equal("default/a/two.png\n", lines[10])
+    assert_equal("\n", lines[11])
+    assert_includes lines[12], "report: /tmp/report.html"
     refute_includes out.string, "\e[" # no ANSI when not a tty
   end
 
@@ -66,6 +69,7 @@ class TestProgress < Minitest::Test
       lines = out.string.lines
       assert_equal(summary["total"], lines.count { |l| l.include?("[") && (l.include?("✓") || l.include?("✗")) })
       assert_match(%r{FAIL: 1/1 failed}, out.string)
+      assert_match(/^FAILS:\ndefault\/page\.txt\n\n(?=report:)/, out.string)
     end
   end
 

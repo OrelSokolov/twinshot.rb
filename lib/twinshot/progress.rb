@@ -12,6 +12,7 @@ module Twinshot
       @color = !@out.nil? && @out.tty?
       @index = 0
       @total = nil
+      @fails = []
     end
 
     def banner(config, group:, oracle_count:, current_count:, total:, workers:)
@@ -32,6 +33,7 @@ module Twinshot
 
       @index += 1
       passed = result["status"] == "pass"
+      @fails << result unless passed
       mark = passed ? paint("✓", :green) : paint("✗", :red)
       detail = result["detail"].to_s
       detail = paint(detail, :red) unless passed
@@ -51,12 +53,20 @@ module Twinshot
                     .group_by { |r| r["kind"] }
                     .map { |kind, rs| "#{kind}: #{rs.size}" }.join(", ")
         @out.puts paint("FAIL: #{summary["failed"]}/#{summary["total"]} failed (#{breakdown})", :red)
+        # Copyable list of every failed file, printed once more as a group.
+        @out.puts paint("FAILS:", :red)
+        @fails.each { |r| @out.puts fail_path(r) }
+        @out.puts
       end
-      @out.puts "time: #{format_duration(elapsed)}" if elapsed
+      @out.puts "Done in #{format_duration(elapsed)}" if elapsed
       @out.puts "report: #{report_path}"
     end
 
     private
+
+    def fail_path(result)
+      result["group"] ? "#{result["group"]}/#{result["rel"]}" : result["rel"]
+    end
 
     def paint(text, meth)
       return text.to_s unless @color

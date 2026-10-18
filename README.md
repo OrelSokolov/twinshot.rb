@@ -138,5 +138,6 @@ Ruby >= 3.2 (developed on 4.0). Dependencies: `ruby-vips` (native `libvips`),
 `colorize`, `diff-lcs`, `nokogiri`.
 
 A run prints live progress: a banner, a colored per-file verdict (✓/✗) in
-worker arrival order, and a final stats block by type. Colors on a tty only;
-`--json` disables progress.
+worker arrival order, and a final stats block by type. When anything failed,
+a copyable `FAILS:` list of every failed file follows the stats block.
+Colors on a tty only; `--json` disables progress.
