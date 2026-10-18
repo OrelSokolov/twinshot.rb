@@ -13,10 +13,10 @@ module Twinshot
   #   default), image compare modes (side-by-side / slider / blink) and
   #   per-side copy buttons (absolute snapshot path — handy to paste into an
   #   agent). CSS and JS are inlined; screenshots referenced by relative paths.
-    #   Plain Bootstrap-style theme: light neutral page, white sticky navbar,
-    #   standard form control / button groups / badges, cards on a centered
-    #   container — no gradients, no glassmorphism, one accent color. The
-    #   page background is a muted slate (#5d5d6a).
+    #   Theme built on Radix Colors (radix-ui.com/colors), light scales:
+    #   slate neutrals, blue accent, red danger, green success. Each step
+    #   has a fixed role (1-2 backgrounds, 3-6 borders/tints, 9 solid
+    #   fills, 11-12 text) with guaranteed contrast for that pairing.
   # - report_for_agent.md — markdown for feeding to LLM agents: per-file
   #   metadata (paths, kind, detail, ratio) plus the divergence code snippets
   #   as unified-style ```diff fences — the same line diffs the human report
@@ -183,19 +183,21 @@ module Twinshot
     end
 
     # Purple overlay marking divergence zones: one positioned <i> per heat
-    # cell, opacity scaled by the cell's intensity; the report CSS pulses
-    # it twice a second (smooth ease-in-out) so differences catch the eye.
-    # Percent-based sizing keeps it glued to the image in every display mode.
+    # cell, all in a single flat tone (no per-cell intensity scaling) so
+    # the zones read as one uniform layer; the report CSS pulses it twice
+    # a second (smooth ease-in-out) so differences catch the eye — except
+    # in blink mode, where the compare image itself flashes and a pulsing
+    # layer would only distract. Percent-based sizing keeps it glued to
+    # the image in every display mode.
     def heat_layer(heat)
       return "" unless heat
 
-      cells = heat["cells"].map do |col, row, intensity|
+      cells = heat["cells"].map do |col, row, _intensity|
         left = col * heat["cell"].fdiv(heat["w"]) * 100
         top = row * heat["cell"].fdiv(heat["h"]) * 100
         width = [heat["cell"], heat["w"] - col * heat["cell"]].min.fdiv(heat["w"]) * 100
         height = [heat["cell"], heat["h"] - row * heat["cell"]].min.fdiv(heat["h"]) * 100
-        alpha = (0.15 + 0.5 * intensity).round(2)
-        %(<i style="left:#{left.round(2)}%;top:#{top.round(2)}%;width:#{width.round(2)}%;height:#{height.round(2)}%;background:rgba(160,32,240,#{alpha})"></i>)
+        %(<i style="left:#{left.round(2)}%;top:#{top.round(2)}%;width:#{width.round(2)}%;height:#{height.round(2)}%;background:rgba(160,32,240,0.3)"></i>)
       end.join
       %(<div class="heat" aria-hidden="true">#{cells}</div>)
     end
@@ -269,70 +271,76 @@ module Twinshot
       end
     end
 
-    # Light Bootstrap-style theme; only the page background is a custom
-    # muted slate. The heat overlay pulses twice a second (see heat_layer).
+    # Radix Colors light theme (radix-ui.com/colors). Steps: 1-2 backgrounds,
+    # 3-4 tints, 5-6 borders, 7-8 borders/hover, 9-10 solid fills, 11-12 text.
+    # blue-a5 is Radix blueA5 — the standard light-theme focus ring.
     CSS = <<~'CSS'
-      :root{--blue:#0d6efd;--red:#dc3545;--green:#198754;--gray-100:#f8f9fa;--gray-200:#e9ecef;--gray-300:#dee2e6;--gray-600:#6c757d;--gray-900:#212529}
-      body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;color:var(--gray-900);background:#5d5d6a;padding-bottom:48px}
-      a{color:var(--blue)}
-      #topbar{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 16px;background:#fff;border-bottom:1px solid var(--gray-300)}
-      #topbar b{font-size:15px;color:var(--blue)}
-      #gname{font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-600);background:var(--gray-100);border:1px solid var(--gray-300);padding:2px 8px;border-radius:.375rem}
-      #stats .ok{color:#fff;background:var(--green);padding:2px 8px;border-radius:.375rem;font-weight:600}
-      #stats .bad{color:#fff;background:var(--red);padding:2px 8px;border-radius:.375rem;font-weight:600}
-      #q{width:200px;padding:4px 10px;border:1px solid var(--gray-300);border-radius:.375rem;color:var(--gray-900);font:inherit}
-      #q:focus{outline:0;border-color:#86b7fe;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+      :root{--slate-1:#fcfcfd;--slate-2:#f9f9fb;--slate-3:#f0f0f3;--slate-4:#e8e8ec;--slate-5:#e0e1e6;--slate-6:#d9d9e0;--slate-7:#cdced6;--slate-8:#b9bbc6;--slate-9:#8b8d98;--slate-10:#80838d;--slate-11:#60646c;--slate-12:#1c2024;
+      --blue-4:#d5efff;--blue-5:#c2e5ff;--blue-6:#acd8fc;--blue-7:#8ec8f6;--blue-8:#5eb1ef;--blue-9:#0090ff;--blue-10:#0588f0;--blue-11:#0d74ce;--blue-12:#113264;
+      --red-2:#fff7f7;--red-3:#feebec;--red-4:#ffdbdc;--red-6:#fdbdbe;--red-7:#f4a9aa;--red-9:#e5484d;--red-11:#ce2c31;
+      --green-2:#f4fbf6;--green-3:#e6f6eb;--green-4:#d6f1df;--green-6:#adddc0;--green-9:#30a46c;--green-11:#218358;--blue-a5:#0093ff3d}
+      body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;color:var(--slate-12);background:var(--slate-4);padding-bottom:48px}
+      a{color:var(--blue-11)}
+      #topbar{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 16px;background:#fff;border-bottom:1px solid var(--slate-6)}
+      #topbar b{font-size:15px;color:var(--blue-11)}
+      #gname{font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--slate-11);background:var(--slate-2);border:1px solid var(--slate-6);padding:2px 8px;border-radius:.375rem}
+      #stats .ok{color:#fff;background:var(--green-9);padding:2px 8px;border-radius:.375rem;font-weight:600}
+      #stats .bad{color:#fff;background:var(--red-9);padding:2px 8px;border-radius:.375rem;font-weight:600}
+      #q{width:200px;padding:4px 10px;border:1px solid var(--slate-6);border-radius:.375rem;color:var(--slate-12);font:inherit}
+      #q:focus{outline:0;border-color:var(--blue-8);box-shadow:0 0 0 .25rem var(--blue-a5)}
       .seg{display:inline-flex}
-      .seg button{border:1px solid var(--gray-300);background:#fff;color:var(--gray-900);padding:4px 12px;cursor:pointer;font:inherit;font-weight:500;line-height:1.4}
-      .seg button:hover{background:var(--gray-100)}
-      .seg button:focus-visible{outline:0;position:relative;z-index:1;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+      .seg button{border:1px solid var(--slate-6);background:#fff;color:var(--slate-12);padding:4px 12px;cursor:pointer;font:inherit;font-weight:500;line-height:1.4}
+      .seg button:hover{background:var(--slate-3)}
+      .seg button:focus-visible{outline:0;position:relative;z-index:1;box-shadow:0 0 0 .25rem var(--blue-a5)}
       .seg button+button{margin-left:-1px}
       .seg button:first-child{border-radius:.375rem 0 0 .375rem}
       .seg button:last-child{border-radius:0 .375rem .375rem 0}
-      .seg button.active{background:var(--blue);border-color:var(--blue);color:#fff}
-      .hint{margin-left:auto;color:var(--gray-600);font-size:12px}
+      .seg button.active{background:var(--blue-9);border-color:var(--blue-9);color:#fff}
+      .hint{margin-left:auto;color:var(--slate-11);font-size:12px}
       .group{max-width:1200px;margin:0 auto;padding:24px 16px 0}
-      .shot{background:#fff;border:1px solid var(--gray-300);border-radius:.5rem;margin:0 0 24px;box-shadow:0 1px 2px rgba(0,0,0,.15)}
-      .shot.fail{border-color:#f1aeb5}
-      .shot h3{margin:0;padding:8px 12px;font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-900);background:var(--gray-100);border-bottom:1px solid var(--gray-300);border-radius:.5rem .5rem 0 0;word-break:break-all}
-      .shot.fail h3{background:#f8d7da;border-bottom-color:#f1aeb5;color:#842029}
+      .shot{background:#fff;border:1px solid var(--slate-6);border-radius:.5rem;margin:0 0 24px;box-shadow:0 1px 2px rgba(0,0,0,.1)}
+      .shot.fail{border-color:var(--red-7)}
+      .shot h3{margin:0;padding:8px 12px;font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--slate-12);background:var(--slate-2);border-bottom:1px solid var(--slate-6);border-radius:.5rem .5rem 0 0;word-break:break-all}
+      .shot.fail h3{background:var(--red-3);border-bottom-color:var(--red-7);color:var(--red-11)}
       .shot>*:last-child{border-radius:0 0 .5rem .5rem;overflow:hidden}
-      .shot .badge{font:600 10px system-ui,sans-serif;color:#495057;border:1px solid var(--gray-300);background:#fff;padding:1px 6px;margin-left:8px;vertical-align:1px;border-radius:.375rem}
-      .shot .detail{font-weight:400;color:var(--gray-600)}
-      .shot.fail .detail{color:#842029}
-      .shot h3 a{color:var(--blue)}
-      .copy{font:600 11px system-ui,sans-serif;color:#495057;background:#fff;border:1px solid var(--gray-300);border-radius:.375rem;padding:1px 7px;cursor:pointer;margin-left:6px;vertical-align:1px}
-      .copy:hover{background:var(--gray-100)}
-      .copy.done{background:var(--green);border-color:var(--green);color:#fff}
+      .shot .badge{font:600 10px system-ui,sans-serif;color:var(--slate-11);border:1px solid var(--slate-6);background:#fff;padding:1px 6px;margin-left:8px;vertical-align:1px;border-radius:.375rem}
+      .shot .detail{font-weight:400;color:var(--slate-11)}
+      .shot.fail .detail{color:var(--red-11)}
+      .shot h3 a{color:var(--blue-11)}
+      .copy{font:600 11px system-ui,sans-serif;color:var(--slate-11);background:#fff;border:1px solid var(--slate-6);border-radius:.375rem;padding:1px 7px;cursor:pointer;margin-left:6px;vertical-align:1px}
+      .copy:hover{background:var(--slate-2)}
+      .copy.done{background:var(--green-9);border-color:var(--green-9);color:#fff}
       .pair{display:flex;--cut:50%}
       body[data-mode=slider] .pair,body[data-mode=blink] .pair{display:block;position:relative}
       .pair figure{flex:1 1 50%;min-width:0;margin:0}
-      .pair figure+figure{border-left:3px solid var(--gray-300)}
-      .pair figcaption{padding:5px 10px;font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gray-600);background:var(--gray-100);border-bottom:1px solid var(--gray-300)}
+      .pair figure+figure{border-left:3px solid var(--slate-6)}
+      .pair figcaption{padding:5px 10px;font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--slate-11);background:var(--slate-2);border-bottom:1px solid var(--slate-6)}
       .cbadge{float:right;font:700 10px system-ui,sans-serif;padding:1px 7px;border-radius:.375rem}
-      .cbadge.ok{background:#d1e7dd;color:#0f5132}
-      .cbadge.warn{background:#f8d7da;color:#842029}
+      .cbadge.ok{background:var(--green-3);color:var(--green-11)}
+      .cbadge.warn{background:var(--red-3);color:var(--red-11)}
       .imgwrap{position:relative}
       .pair img{display:block;width:100%;height:auto}
       .pair .overlay{display:none}
       body[data-mode=slider] .overlay,body[data-mode=blink] .overlay{display:block;position:absolute;top:0;left:0;width:100%;height:auto}
       body[data-mode=slider] .overlay{clip-path:inset(0 calc(100% - var(--cut)) 0 0)}
       body[data-mode=blink] .overlay{animation:blink 1s steps(1) infinite}
+      body[data-filter=fail][data-mode=blink] .overlay{animation-duration:2s}
       body[data-mode=slider] .side-b,body[data-mode=blink] .side-b{display:none}
       .heat{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
       .heat i{position:absolute;display:block;animation:heat-pulse .5s ease-in-out infinite}
+      body[data-mode=blink] .heat i{animation:none}
       body[data-heat=off] .heat{display:none}
       @media (prefers-reduced-motion: reduce){.heat i{animation:none}}
       @keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
       @keyframes heat-pulse{0%,100%{opacity:1}50%{opacity:.15}}
-      .slider{display:none;width:100%;accent-color:var(--blue)}
+      .slider{display:none;width:100%;accent-color:var(--blue-9)}
       body[data-mode=slider] .slider{display:block}
       pre.diff{margin:0;padding:8px 0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;max-height:480px;background:#fff}
       pre.diff span{display:block;padding:0 10px;white-space:pre}
-      pre.diff .del{background:#f8d7da;color:#842029}
-      pre.diff .add{background:#d1e7dd;color:#0f5132}
-      pre.diff .same{color:var(--gray-600)}
-      .note{padding:6px 12px;color:var(--gray-600);border-top:1px solid var(--gray-300)}
+      pre.diff .del{background:var(--red-3);color:var(--red-11)}
+      pre.diff .add{background:var(--green-3);color:var(--green-11)}
+      pre.diff .same{color:var(--slate-11)}
+      .note{padding:6px 12px;color:var(--slate-11);border-top:1px solid var(--slate-6)}
     CSS
 
     JS = <<~'JS'

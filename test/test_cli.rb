@@ -101,7 +101,7 @@ class TestCli < Minitest::Test
       run_cli("-c", config_path(tmp, tmp), "compare")
       html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
       assert_includes html, %(<div class="heat")
-      assert_includes html, "rgba(160,32,240,"
+      assert_includes html, "background:rgba(160,32,240,0.3)"
       assert_includes html, %(data-h="on")
       assert_includes File.read(File.join(tmp, "twinshot-report", "default", "summary.json")), '"heat"'
     end
@@ -115,6 +115,17 @@ class TestCli < Minitest::Test
       # .pair .overlay must outrank .pair img{display:block} (which rendered the
       # overlay as a duplicate image stacked below the oracle shot).
       assert_includes html, ".pair .overlay{display:none}"
+    end
+  end
+
+  def test_compare_report_heat_static_in_blink_mode
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      run_cli("-c", config_path(tmp, tmp), "compare")
+      html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+      # In blink mode the compare image itself flashes; the heat overlay must
+      # stay static so it doesn't fight the blink comparison.
+      assert_includes html, "body[data-mode=blink] .heat i{animation:none}"
     end
   end
 
