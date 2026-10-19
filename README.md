@@ -107,6 +107,7 @@ separately, but they never change the exit code.
 ```
 twinshot compare [GROUP|all] [-c PATH] [-j N] [--json] [--[no-]open]  # compare, write reports
 twinshot generate [GROUP|all|SIDE][:oracle|current]  # run generate commands
+twinshot review [GROUP|all] [compare flags]        # regenerate, then compare
 twinshot help [COMMAND]                      # help
 ```
 
@@ -129,6 +130,11 @@ twinshot help [COMMAND]                      # help
   side or both), announced as a `Generate:` list first. A failing command
   doesn't stop the rest, but the exit code reports it. The words `all`,
   `oracle` and `current` are reserved and cannot be group names.
+- `review` is generate + compare in one run: both sides of the selected
+  groups (`review dogs`, `all` by default) regenerate first — a tree
+  without a generate command is taken as it is — then the compare runs and
+  writes the same reports, with the same options as `compare`. A failed
+  generate command fails the run (exit 1) without comparing.
 - Exit codes: `0` — everything matched, `1` — differences found (fits
   `git bisect run` and CI), `2` — config/usage error. `soft_check` warnings
   never affect the exit code.

@@ -4,10 +4,12 @@ require "json"
 require "optparse"
 require "shellwords"
 require "fileutils"
+require "English"
+require "colorize"
 require_relative "progress"
 
 module Twinshot
-  # Command-line interface: twinshot help | generate | compare.
+  # Command-line interface: twinshot help | generate | compare | review.
   #
   # Exit codes: 0 — all pass (or command succeeded), 1 — parity differences
   # found (or a generate command failed), 2 — usage or config error.
@@ -29,7 +31,7 @@ module Twinshot
 
     # Words bash feeds to the hidden completion helper. `completion install`
     # registers the `complete -C` one-liner that triggers this path.
-    COMMANDS = %w[compare generate help completion].freeze
+    COMMANDS = %w[compare generate review help completion].freeze
 
     def call
       # `complete -C twinshot twinshot` protocol: bash runs us with
@@ -54,6 +56,7 @@ module Twinshot
       case command
       when "compare" then compare
       when "generate" then generate
+      when "review" then review
       when "completion" then completion
       when "help" then help
       when nil
@@ -64,7 +67,7 @@ module Twinshot
         @err.puts global_parser
         EXIT_ERROR
       end
-    rescue OptionParser::ParseError, Config::Error, Compare::Error => e
+    rescue OptionParser::ParseError, Config::Error, Compare::Error, Lockfile::Error => e
       @err.puts "twinshot: #{e.message}"
       EXIT_ERROR
     end
@@ -87,6 +90,8 @@ module Twinshot
         o.separator "                      current trees), write reports"
         o.separator "  generate [GROUP:SIDE] run generate commands: dogs:oracle, a bare"
         o.separator "                      side (default group), a group, or 'all'"
+        o.separator "  review [GROUP|all] regenerate a group (or every group), then"
+        o.separator "                      compare it — generate and compare in one run"
         o.separator "  completion install install bash completion (works on the next TAB)"
         o.separator "  help [COMMAND]     show help"
         o.separator ""
@@ -118,17 +123,41 @@ module Twinshot
         o.separator "the exit code."
         o.separator ""
         o.separator "Options:"
-        o.on("-c", "--config PATH", "Path to twinshot.yml (default: #{Config::DEFAULT_FILENAME})") do |v|
-          @config_path = v
-        end
-        o.on("-j", "--jobs N", Integer, "Worker processes (default: auto, capped at #{Compare::MAX_WORKERS})") do |v|
-          @jobs = v
-        end
-        o.on("--json", "Print the machine summary to stdout") { @json = true }
-        o.on("--[no-]open", "Open the report in the default browser",
-             "(default: on when stdout is a tty)") { |v| @open = v }
-        o.on("-h", "--help", "Show this help") { @helped = true }
+        add_compare_options(o)
       end
+    end
+
+    def review_parser
+      OptionParser.new do |o|
+        o.banner = "Usage: twinshot review [GROUP|all] [-c PATH] [-j N] [--json] [--[no-]open]"
+        o.separator ""
+        o.separator "Generate and compare in one run: regenerates both sides of"
+        o.separator "every selected group (a tree without a generate command is"
+        o.separator "taken as it is), then compares exactly like `compare` and"
+        o.separator "writes the same reports. A failed generate command fails"
+        o.separator "the run without comparing — reports over stale trees would"
+        o.separator "be misleading."
+        o.separator ""
+        o.separator "Exit status: as compare (0 — all pass, 1 — differences or a"
+        o.separator "failed generate command, 2 — config error)."
+        o.separator ""
+        o.separator "Options:"
+        add_compare_options(o)
+      end
+    end
+
+    # The options shared by compare and review.
+    def add_compare_options(opts)
+      opts.on("-c", "--config PATH", "Path to twinshot.yml (default: #{Config::DEFAULT_FILENAME})") do |v|
+        @config_path = v
+      end
+      opts.on("-j", "--jobs N", Integer, "Worker processes (default: auto, capped at #{Compare::MAX_WORKERS})") do |v|
+        @jobs = v
+      end
+      opts.on("--json", "Print the machine summary to stdout") { @json = true }
+      opts.on("--[no-]open", "Open the report in the default browser",
+              "(default: on when stdout is a tty)") { |v| @open = v }
+      opts.on("-h", "--help", "Show this help") { @helped = true }
     end
 
     def generate_parser
@@ -169,7 +198,13 @@ module Twinshot
       end
 
       config = Config.load(@config_path)
-      groups = select_groups(config)
+      Lockfile.under(config) { run_compare(config, select_groups(config)) }
+    end
+
+    # The compare run shared by compare and review: compares the groups,
+    # writes the reports, prints the summary, opens the report. Returns the
+    # exit code (0 — all pass, 1 — differences found).
+    def run_compare(config, groups)
       progress = Progress.new(out: @out, quiet: @json)
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       summary = Compare.new(config).run(jobs: @jobs, progress: progress, groups: groups)
@@ -236,37 +271,87 @@ module Twinshot
       end
 
       config = Config.load(@config_path)
-      groups, side = generate_selection(config, @argv.shift)
-      if (extra = @argv.shift)
-        @err.puts "twinshot: unexpected argument #{extra.inspect}"
-        @err.puts generate_parser
-        return EXIT_ERROR
+      Lockfile.under(config) do
+        groups, side = generate_selection(config, @argv.shift)
+        if (extra = @argv.shift)
+          @err.puts "twinshot: unexpected argument #{extra.inspect}"
+          @err.puts generate_parser
+          next EXIT_ERROR
+        end
+
+        targets = generate_targets(groups, side)
+        if targets.empty?
+          what = side ? "#{side}.generate" : "generate"
+          scope = groups.size == 1 ? "for group #{groups.first.name}" : "in any selected group"
+          @err.puts "twinshot: no #{what} configured #{scope} in #{File.basename(config.path)}"
+          next EXIT_ERROR
+        end
+
+        run_generate(config, targets) ? EXIT_OK : EXIT_DIFF
+      end
+    end
+
+    # The review command is generate + compare in one run: both sides of the selected
+    # groups regenerate first (a tree without a generate command is taken as
+    # it is — nothing to rebuild is not an error here, the compare still
+    # runs), then the compare. A failed generate command fails the whole run
+    # with no compare and no reports.
+    def review
+      review_parser.order!(@argv)
+      if @helped
+        @out.puts review_parser
+        return EXIT_OK
       end
 
-      # Trees without a generate command are simply skipped.
+      config = Config.load(@config_path)
+      Lockfile.under(config) do
+        groups = select_groups(config)
+        targets = generate_targets(groups)
+        next run_compare(config, groups) if targets.empty?
+
+        unless run_generate(config, targets)
+          @err.puts err_paint("twinshot: generate failed — skipping compare " \
+                              "(a report over stale trees would be misleading)")
+          next EXIT_DIFF
+        end
+        run_compare(config, groups)
+      end
+    end
+
+    # Trees (group, side, command) with a generate command, in oracle-then-
+    # current order. Trees without one are simply skipped.
+    def generate_targets(groups, side = nil)
       sides = side ? [side] : Config::SIDES
-      targets = groups.flat_map do |g|
+      groups.flat_map do |g|
         sides.filter_map do |s|
           command = g.generate_command(s)
           [g, s, command] if command
         end
       end
-      if targets.empty?
-        what = side ? "#{side}.generate" : "generate"
-        scope = groups.size == 1 ? "for group #{groups.first.name}" : "in any selected group"
-        @err.puts "twinshot: no #{what} configured #{scope} in #{File.basename(config.path)}"
-        return EXIT_ERROR
-      end
+    end
 
-      # Say it first — the full list of trees about to be regenerated — then
-      # run them one by one; a failing command doesn't stop the rest.
+    # Red for failures on stderr — but only when stderr is a tty, like
+    # Progress paints stdout (piped/CI logs stay plain).
+    def err_paint(text)
+      return text.to_s unless @err.tty?
+
+      text.to_s.red
+    end
+
+    # Says the full list of trees about to be regenerated first, then runs
+    # the commands one by one from the config's directory; a failing command
+    # doesn't stop the rest, it just says so on stderr. true — all succeeded.
+    def run_generate(config, targets)
       @out.puts "Generate:"
       targets.each { |group, tree, _command| @out.puts "- #{group.name}/#{tree}" }
-      results = targets.map do |group, tree, command|
+      targets.map do |group, tree, command|
         @out.puts "twinshot: [#{group.name}/#{tree}] #{command}"
-        system(command, chdir: config.root)
-      end
-      results.all? ? EXIT_OK : EXIT_DIFF
+        next true if system(command, chdir: config.root)
+
+        @err.puts err_paint("twinshot: [#{group.name}/#{tree}] generate command " \
+                            "failed with exit #{$CHILD_STATUS.exitstatus}")
+        false
+      end.all?
     end
 
     # The `complete -C` contract: bash passes the whole line in COMP_LINE and
@@ -308,7 +393,7 @@ module Twinshot
       when nil then COMMANDS + parser_flags(global_parser)
       when "help" then COMMANDS
       when "completion" then %w[install]
-      when "compare"
+      when "compare", "review"
         # Only the first positional is a group name (or 'all'); after that —
         # and for a bogus word — just the options.
         positionals(typed).empty? ? group_candidates(typed) | parser_flags(compare_parser) : parser_flags(compare_parser)
@@ -429,8 +514,9 @@ module Twinshot
              when nil then global_parser.to_s
              when "compare" then compare_parser.to_s
              when "generate" then generate_parser.to_s
+             when "review" then review_parser.to_s
              else
-               @err.puts "twinshot: unknown help topic #{topic.inspect} (expected compare or generate)"
+               @err.puts "twinshot: unknown help topic #{topic.inspect} (expected compare, generate or review)"
                return EXIT_ERROR
              end
       @out.puts text

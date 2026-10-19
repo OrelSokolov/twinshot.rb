@@ -8,6 +8,7 @@ require_relative "twinshot/compare"
 require_relative "twinshot/progress"
 require_relative "twinshot/report"
 require_relative "twinshot/opener"
+require_relative "twinshot/lockfile"
 require_relative "twinshot/cli"
 
 # Twinshot: 1:1 artifact parity between a verified oracle tree and a current

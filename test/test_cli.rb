@@ -20,6 +20,8 @@ class TestCli < Minitest::Test
     assert_includes @out.string, "Usage: twinshot compare"
     assert_equal 0, run_cli("help", "generate")
     assert_includes @out.string, "Usage: twinshot generate"
+    assert_equal 0, run_cli("help", "review")
+    assert_includes @out.string, "Usage: twinshot review"
     assert_equal 2, run_cli("help", "bogus")
     assert_includes @err.string, "unknown help topic"
   end
@@ -356,12 +358,85 @@ class TestCli < Minitest::Test
     end
   end
 
+  def test_review_regenerates_then_compares
+    Dir.mktmpdir do |tmp|
+      # The trees differ until the generate commands rewrite them identically.
+      make_trees(tmp, diff: true)
+      config = config_path(tmp, tmp)
+      File.write(config, <<~YAML)
+        oracle:
+          path: #{tmp}/oracle
+          generate: "echo same > #{tmp}/oracle/page.txt"
+        current:
+          path: #{tmp}/current
+          generate: "echo same > #{tmp}/current/page.txt"
+      YAML
+      assert_equal 0, run_cli("-c", config, "review")
+      assert_includes @out.string, "Generate:"
+      %w[default/oracle default/current].each { |t| assert_includes @out.string, "- #{t}" }
+      assert_includes @out.string, "1/1 passed"
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+    end
+  end
+
+  def test_review_single_group_only
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle:
+              path: #{tmp}/oracle
+              generate: touch dog-generated
+            current: {path: #{tmp}/current}
+      YAML
+      assert_equal 0, run_cli("-c", config, "review", "dogs")
+      assert File.exist?(File.join(tmp, "dog-generated"))
+      assert File.exist?(File.join(tmp, "twinshot-report", "dogs", "report_for_human.html"))
+      refute File.exist?(File.join(tmp, "twinshot-report", "default")), "default group must not run"
+      assert_equal 2, run_cli("-c", config, "review", "cats")
+      assert_includes @err.string, 'unknown group: "cats"'
+    end
+  end
+
+  def test_review_generate_failure_skips_compare
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      content = File.read(config)
+                    .sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: \"false\"")
+                    .sub("path: #{tmp}/current", "path: #{tmp}/current\n  generate: touch still-run")
+      File.write(config, content)
+      assert_equal 1, run_cli("-c", config, "review")
+      assert File.exist?(File.join(tmp, "still-run")), "a failed command must not stop the rest"
+      refute File.exist?(File.join(tmp, "twinshot-report")), "no reports over stale trees"
+      # The failure is said out loud: which tree fell over and why compare never ran.
+      assert_includes @err.string, "[default/oracle] generate command failed with exit 1"
+      assert_includes @err.string, "generate failed — skipping compare"
+      refute_includes @err.string, "\e[31m", "piped stderr stays plain"
+      # ...and in red when stderr is a tty.
+      assert_equal 1, run_cli("-c", config, "review", err_tty: true)
+      assert_includes @err.string,
+                      "twinshot: generate failed — skipping compare (a report over stale trees would be misleading)".red
+    end
+  end
+
+  def test_review_without_generate_configured_is_plain_compare
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      assert_equal 0, run_cli("-c", config_path(tmp, tmp), "review")
+      refute_includes @out.string, "Generate:"
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+    end
+  end
+
   def test_complete_top_level_commands_and_flags
     assert_equal 0, run_cli("__complete", "gen")
     assert_equal ["generate"], @out.string.split
     run_cli("__complete", "")
     words = @out.string.split
-    %w[compare generate help -c --config --version --help].each do |w|
+    %w[compare generate review help -c --config --version --help].each do |w|
       assert_includes words, w, w
     end
     refute_includes words, "__complete", "completion helper stays hidden"
@@ -449,10 +524,11 @@ class TestCli < Minitest::Test
     saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
   end
 
-  def run_cli(*args, tty: false, json: false)
+  def run_cli(*args, tty: false, err_tty: false, json: false)
     @out = StringIO.new
     @out.define_singleton_method(:tty?) { true } if tty
     @err = StringIO.new
+    @err.define_singleton_method(:tty?) { true } if err_tty
     argv = json ? args + ["--json"] : args
     Twinshot::CLI.new(argv, out: @out, err: @err).call
   end
