@@ -12,7 +12,7 @@ class TestCli < Minitest::Test
     exit_code = run_cli("help")
     assert_equal 0, exit_code
     assert_includes @out.string, "twinshot — 1:1 artifact parity"
-    assert_includes @out.string, "compare every group (oracle vs current trees), write reports"
+    assert_includes @out.string, "compare every group or just one (oracle vs"
   end
 
   def test_help_topic
@@ -86,6 +86,70 @@ class TestCli < Minitest::Test
       summary = JSON.parse(File.read(File.join(tmp, "twinshot-report", "default", "summary.json")))
       assert_equal 1, summary["total"]
       assert_equal "default", summary["results"].first["group"]
+    end
+  end
+
+  def test_compare_single_group_only
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      %w[dogs-oracle dogs-current].each { |d| FileUtils.mkdir_p(File.join(tmp, d)) }
+      File.write(File.join(tmp, "dogs-oracle", "page.txt"), "same\n")
+      File.write(File.join(tmp, "dogs-current", "page.txt"), "other\n")
+      config = config_path(tmp, tmp)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle: {path: #{tmp}/dogs-oracle}
+            current: {path: #{tmp}/dogs-current}
+      YAML
+      opened = []
+      Twinshot::Opener.stub(:open, ->(path) { opened << path }) do
+        # Only dogs runs: its diff fails the run, its report is the one opened,
+        # and the default group's report is not written at all.
+        assert_equal 1, run_cli("-c", config, "compare", "--open", "dogs")
+      end
+      assert File.exist?(File.join(tmp, "twinshot-report", "dogs", "report_for_human.html"))
+      refute File.exist?(File.join(tmp, "twinshot-report", "default")), "default group must not run"
+      assert_equal [File.join(tmp, "twinshot-report", "dogs", "report_for_human.html")], opened
+
+      assert_equal 0, run_cli("-c", config, "compare", "default")
+      assert File.exist?(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+
+      assert_equal 2, run_cli("-c", config, "compare", "cats")
+      assert_includes @err.string, 'unknown group: "cats"'
+    end
+  end
+
+  def test_compare_report_group_switcher
+    Dir.mktmpdir do |tmp|
+      config = config_path(tmp, tmp)
+      make_trees(tmp, diff: true)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle: {path: #{tmp}/oracle}
+            current: {path: #{tmp}/current}
+      YAML
+      run_cli("-c", config, "compare")
+      %w[default dogs].each do |group|
+        html = File.read(File.join(tmp, "twinshot-report", group, "report_for_human.html"))
+        other = group == "default" ? "dogs" : "default"
+        assert_includes html, %(class="dd-toggle"), "#{group}: dropdown toggle"
+        assert_includes html, %(aria-expanded="false"), "#{group}: collapsed by default"
+        assert_includes html, %(href="../#{other}/report_for_human.html"), "#{group}: link to #{other}"
+        assert_includes html, %(href="../#{group}/report_for_human.html" class="active" aria-current="page"),
+                        "#{group}: current group marked active"
+      end
+    end
+  end
+
+  def test_compare_report_single_group_has_no_switcher
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      run_cli("-c", config_path(tmp, tmp), "compare")
+      html = File.read(File.join(tmp, "twinshot-report", "default", "report_for_human.html"))
+      assert_includes html, %(<span id="gname">default</span>)
+      refute_includes html, %(<div class="dropdown">)
     end
   end
 
@@ -178,7 +242,7 @@ class TestCli < Minitest::Test
   def test_generate_without_command_configured
     Dir.mktmpdir do |tmp|
       make_trees(tmp, diff: false)
-      assert_equal 2, run_cli("-c", config_path(tmp, tmp), "generate", "oracle")
+      assert_equal 2, run_cli("-c", config_path(tmp, tmp), "generate", "default:oracle")
       assert_includes @err.string, "no oracle.generate configured"
     end
   end
@@ -190,6 +254,7 @@ class TestCli < Minitest::Test
       config = config_path(tmp, tmp)
       File.write(config,
                  File.read(config).sub("path: #{tmp}/oracle", "path: #{tmp}/oracle\n  generate: touch generated"))
+      # A bare side — no namespace — means the default group.
       assert_equal 0, run_cli("-c", config, "generate", "oracle")
       assert File.exist?(marker)
     end
@@ -208,10 +273,17 @@ class TestCli < Minitest::Test
               generate: touch dog-generated
             current: {path: #{tmp}/current}
       YAML
-      assert_equal 0, run_cli("-c", config, "generate", "-g", "dogs", "oracle")
+      assert_equal 0, run_cli("-c", config, "generate", "dogs:oracle")
       assert File.exist?(marker)
-      assert_equal 2, run_cli("-c", config, "generate", "-g", "cats", "oracle")
+      # current side has no generate command configured in the group
+      assert_equal 2, run_cli("-c", config, "generate", "dogs:current")
+      assert_includes @err.string, "no current.generate configured for group dogs"
+      assert_equal 2, run_cli("-c", config, "generate", "cats:oracle")
       assert_includes @err.string, 'unknown group: "cats"'
+      assert_equal 2, run_cli("-c", config, "generate", "dogs:bogus")
+      assert_includes @err.string, 'unknown side: "bogus"'
+      assert_equal 2, run_cli("-c", config, "generate", "dogs:oracle", "extra")
+      assert_includes @err.string, 'unexpected argument "extra"'
     end
   end
 
@@ -230,7 +302,7 @@ class TestCli < Minitest::Test
             current: {path: #{tmp}/current}
       YAML
       File.write(config, content)
-      assert_equal 0, run_cli("-c", config, "generate", "-g", "all", "oracle")
+      assert_equal 0, run_cli("-c", config, "generate", "all:oracle")
       assert File.exist?(File.join(tmp, "default-generated"))
       assert File.exist?(File.join(tmp, "dog-generated"))
     end
@@ -284,7 +356,98 @@ class TestCli < Minitest::Test
     end
   end
 
+  def test_complete_top_level_commands_and_flags
+    assert_equal 0, run_cli("__complete", "gen")
+    assert_equal ["generate"], @out.string.split
+    run_cli("__complete", "")
+    words = @out.string.split
+    %w[compare generate help -c --config --version --help].each do |w|
+      assert_includes words, w, w
+    end
+    refute_includes words, "__complete", "completion helper stays hidden"
+  end
+
+  def test_complete_flags_come_from_the_parsers
+    run_cli("__complete", "compare", "")
+    words = @out.string.split
+    %w[-j --jobs --json --open --no-open all].each { |w| assert_includes words, w, w }
+    run_cli("__complete", "generate", "")
+    words = @out.string.split
+    # no twinshot.yml here — the only group candidate is `all`, plus the
+    # bare sides (a bare side = the default group)
+    %w[all oracle current -c --config].each { |w| assert_includes words, w, w }
+    # half-typed GROUP: completes the sides on that prefix
+    assert_equal 0, run_cli("__complete", "generate", "dogs:")
+    assert_equal %w[dogs:oracle dogs:current], @out.string.split
+    run_cli("__complete", "generate", "all", "")
+    words = @out.string.split
+    assert_includes words, "--config"
+    refute_includes words, "oracle", "the selector is a single word — nothing positional follows"
+    refute_includes words, "all"
+  end
+
+  def test_complete_group_names_from_config
+    Dir.mktmpdir do |tmp|
+      make_trees(tmp, diff: false)
+      config = config_path(tmp, tmp)
+      File.write(config, File.read(config) + <<~YAML)
+        groups:
+          dogs:
+            oracle: {path: #{tmp}/oracle}
+            current: {path: #{tmp}/current}
+      YAML
+      assert_equal 0, run_cli("__complete", "-c", config, "generate", "")
+      words = @out.string.split
+      %w[all default dogs].each { |w| assert_includes words, w, w }
+      assert_equal 0, run_cli("__complete", "-c", config, "compare", "")
+      assert_includes @out.string.split, "dogs"
+    end
+  end
+
+  def test_complete_c_protocol
+    with_env("COMP_LINE" => "twinshot gen", "COMP_POINT" => "12") do
+      assert_equal 0, run_cli("twinshot", "gen", "twinshot")
+      assert_equal ["generate"], @out.string.split
+    end
+    line = "twinshot generate "
+    with_env("COMP_LINE" => line, "COMP_POINT" => line.length.to_s) do
+      Dir.mktmpdir do |tmp|
+        make_trees(tmp, diff: false)
+        assert_equal 0, run_cli("twinshot", "", "generate")
+        # no twinshot.yml here — the only group candidate is `all`
+        assert_includes @out.string.split, "all"
+        refute_includes @out.string.split, "default"
+      end
+    end
+  end
+
+  def test_completion_install_writes_bash_completion_one_liner
+    Dir.mktmpdir do |home|
+      with_env("HOME" => home, "XDG_DATA_HOME" => nil) do
+        assert_equal 0, run_cli("completion", "install")
+        target = File.join(home, ".local/share/bash-completion/completions/twinshot")
+        assert_equal "complete -C twinshot twinshot\n", File.read(target)
+        assert_includes @out.string, target
+      end
+    end
+  end
+
+  def test_completion_without_action_is_usage_error
+    assert_equal 2, run_cli("completion")
+    assert_equal 2, run_cli("completion", "bogus")
+    assert_includes @err.string, "expected 'completion install'"
+  end
+
   private
+
+  # Sets ENV keys for the block, restoring (or deleting, for nil values) after.
+  def with_env(pairs)
+    saved = pairs.keys.map { |k| [k, ENV[k]] }.to_h
+    pairs.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+    yield
+  ensure
+    saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
 
   def run_cli(*args, tty: false, json: false)
     @out = StringIO.new

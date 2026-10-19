@@ -49,7 +49,7 @@ class TestCompare < Minitest::Test
     end
   end
 
-  def test_soft_check_downgrades_content_diffs_to_warns
+  def test_soft_check_downgrades_content_and_structure_diffs_to_warns
     Dir.mktmpdir do |tmp|
       build_fixture(tmp)
       config_path = File.join(tmp, "twinshot.yml")
@@ -57,6 +57,7 @@ class TestCompare < Minitest::Test
         soft_check:
           - a/two.png
           - d/only-oracle.txt
+          - e/* # glob: excluded from the structure check like exact paths
       YAML
       config = Twinshot::Config.load(config_path)
 
@@ -66,24 +67,29 @@ class TestCompare < Minitest::Test
 
       Twinshot::Report.new(config, parallel).write
       by_rel = parallel["results"].to_h { |r| [r["rel"], r] }
-      assert_equal "warn", by_rel["a/two.png"]["status"]         # content diff softened
-      assert_equal "fail", by_rel["d/only-oracle.txt"]["status"] # structure never softened
+      assert_equal "warn", by_rel["a/two.png"]["status"] # content diff softened
+      # soft_check paths on a single side keep their structure result, but
+      # downgraded to a warn — visible (yellow !), never failing the run
+      assert_equal "warn", by_rel["d/only-oracle.txt"]["status"]
+      assert_match(/missing in current/, by_rel["d/only-oracle.txt"]["detail"])
+      assert_equal "warn", by_rel["e/only-current.txt"]["status"] # matched by the e/* glob
+      assert_match(/extra in current/, by_rel["e/only-current.txt"]["detail"])
       assert_equal 2, parallel["passed"]
-      assert_equal 1, parallel["warned"]
-      assert_equal 3, parallel["failed"]
-      assert_equal 1, parallel["groups"].first["warned"]
+      assert_equal 3, parallel["warned"]
+      assert_equal 1, parallel["failed"]
+      assert_equal 3, parallel["groups"].first["warned"]
 
       # the diff image is written for warns too — there is something to look at
       assert File.exist?(File.join(config.report_dir, "diffs", "a", "two.png.diff.png"))
       report_html = File.read(File.join(config.report_dir, Twinshot::Config::HUMAN_REPORT))
       assert_includes report_html, %(class="shot warn")
       assert_includes report_html, %(data-f="warn")
-      assert_includes report_html, "1 warn"
+      assert_includes report_html, "3 warn"
       agent_md = File.read(File.join(config.report_dir, Twinshot::Config::AGENT_REPORT))
-      assert_includes agent_md, "## Warnings (1)"
+      assert_includes agent_md, "## Warnings (3)"
       assert_includes agent_md, "### a/two.png"
       summary_json = JSON.parse(File.read(File.join(config.report_dir, "summary.json")))
-      assert_equal 1, summary_json["warned"]
+      assert_equal 3, summary_json["warned"]
     end
   end
 

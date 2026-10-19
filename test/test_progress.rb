@@ -54,7 +54,7 @@ class TestProgress < Minitest::Test
     lines = out.string.lines
     assert_match(%r{\[ *1/3 *\] ! default/a/clock\.png — 0\.500% px differ}, lines[5])
     assert_match(%r{\[ *2/3 *\] ✗ default/a/real\.png — 9\.000% px differ}, lines[6])
-    assert_match(/FAIL: 1\/3 failed/, lines[8])
+    assert_match(%r{FAIL: 1/3 failed}, lines[8])
     assert_equal("FAILS:\n", lines[9])
     assert_equal("default/a/real.png\n", lines[10]) # warns stay out of FAILS
     refute_includes out.string, "WARNS:" # warns are not listed while the run failed
@@ -72,7 +72,7 @@ class TestProgress < Minitest::Test
     progress.summary({ "total" => 2, "passed" => 1, "warned" => 1, "failed" => 0, "results" => [] },
                      "/tmp/r.html")
     assert_includes out.string, "OK: 1/2 passed (1 warn)"
-    assert_match(/WARNS:\ndefault\/a\/clock\.png\n\n(?=report:)/, out.string)
+    assert_match(%r{WARNS:\ndefault/a/clock\.png\n\n(?=report:)}, out.string)
     refute_includes out.string, "FAILS:"
   end
 
@@ -105,7 +105,7 @@ class TestProgress < Minitest::Test
       lines = out.string.lines
       assert_equal(summary["total"], lines.count { |l| l.include?("[") && (l.include?("✓") || l.include?("✗")) })
       assert_match(%r{FAIL: 1/1 failed}, out.string)
-      assert_match(/^FAILS:\ndefault\/page\.txt\n\n(?=report:)/, out.string)
+      assert_match(%r{^FAILS:\ndefault/page\.txt\n\n(?=report:)}, out.string)
     end
   end
 

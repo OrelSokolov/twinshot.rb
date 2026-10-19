@@ -48,10 +48,12 @@ module Twinshot
     # "groups", "results" } — groups holds per-group stats plus the relative path to
     # that group's report. progress (Twinshot::Progress or anything
     # responding to #banner/#result) is optional; every produced result is
-    # announced to it in arrival order.
-    def run(jobs: nil, progress: nil)
+    # announced to it in arrival order. groups limits the run to a subset of
+    # the configured ones (default: all, in config order).
+    def run(jobs: nil, progress: nil, groups: nil)
+      groups ||= @config.groups
       results = []
-      group_stats = @config.groups.map do |group|
+      group_stats = groups.map do |group|
         group_results = run_group(group, jobs, progress)
         results.concat(group_results)
         {
@@ -72,12 +74,17 @@ module Twinshot
       oracle_files = scan(group, "oracle")
       current_files = scan(group, "current")
       structure = Tree.diff(oracle_files, current_files)
-      common = oracle_files - structure["missing"]
+      # soft_check entries may legitimately exist on only one side (oracle or
+      # current): their missing/extra results are downgraded to warns in
+      # structure_results below, and they are never content-compared — a file
+      # on a single side has no pair to compare. Present on both sides, the
+      # content diff downgrades to a warn in soften/compare_worker.rb.
+      common = oracle_files & current_files
       entries = common.to_h { |rel| [rel, Adapters.for(rel)] }
       unknown = entries.filter_map { |rel, adapter| unknown_result(group, rel) if adapter.nil? }
       comparable = entries.select { |_rel, adapter| adapter }
       workers = resolve_workers(jobs, comparable.size)
-      total = oracle_files.size + structure["extra"].size
+      total = common.size + structure["missing"].size + structure["extra"].size
       ctx = Adapters::Ctx.new(max_diff_ratio: @config.max_diff_ratio, report_dir: @config.report_dir(group))
 
       progress&.banner(@config, group: group, oracle_count: oracle_files.size, current_count: current_files.size,
@@ -107,12 +114,16 @@ module Twinshot
       raise Config::Error, "#{side} path not found for group #{group.name}: #{path}"
     end
 
+    # Structure results keep their missing/extra detail, but soft_check
+    # entries are warnings, not failures — a listed file may legitimately
+    # exist on only one side.
     def structure_results(group, structure)
+      soften_structure = ->(rel) { @config.soft_check?(rel) ? "warn" : "fail" }
       structure["missing"].map do |rel|
-        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => "fail",
+        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => soften_structure.call(rel),
           "detail" => "missing in current" }
       end + structure["extra"].map do |rel|
-        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => "fail",
+        { "group" => group.name, "rel" => rel, "kind" => "structure", "status" => soften_structure.call(rel),
           "detail" => "extra in current (not in oracle)" }
       end
     end

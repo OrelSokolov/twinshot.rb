@@ -9,10 +9,11 @@ module Twinshot
   # Two reports per group folder:
   #
   # - report_for_human.html — self-contained HTML gallery: 1:1 gallery (flat,
-  #   ordered by directory), with search, status filters (failures shown by
-  #   default), image compare modes (side-by-side / slider / blink) and
-  #   per-side copy buttons (absolute snapshot path — handy to paste into an
-  #   agent). CSS and JS are inlined; screenshots referenced by relative paths.
+  #   ordered by directory), with search, a bootstrap-style group switcher
+  #   dropdown, status filters (failures shown by default), image compare
+  #   modes (side-by-side / slider / blink) and per-side copy buttons
+  #   (absolute snapshot path — handy to paste into an agent). CSS and JS
+  #   are inlined; screenshots referenced by relative paths.
   #   Theme built on Radix Colors (radix-ui.com/colors), light scales:
   #   slate neutrals, blue accent, red danger, green success. Each step
   #   has a fixed role (1-2 backgrounds, 3-6 borders/tints, 9 solid
@@ -64,6 +65,40 @@ module Twinshot
       CGI.escapeHTML(text.to_s)
     end
 
+    # Bootstrap-style group switcher for the topbar: each group's report
+    # lives in a sibling folder (twinshot-report/<name>/), so switching is a
+    # relative link ../<name>/report_for_human.html. Items carry the group's
+    # pass/warn/fail tally so trouble is visible before navigating. With a
+    # single group there is nothing to switch to: the plain #gname badge.
+    def group_selector(group)
+      groups = @summary["groups"] || []
+      return %(<span id="gname">#{esc group.name}</span>) if groups.size <= 1
+
+      items = groups.map do |stats|
+        current = stats["name"] == group.name
+        attrs = %( href="../#{esc stats["name"]}/#{Config::HUMAN_REPORT}")
+        attrs += %( class="active" aria-current="page") if current
+        "<li role=\"none\"><a role=\"menuitem\"#{attrs}>" \
+          "<span>#{esc stats["name"]}</span>" \
+          "<span class=\"dd-stats\">#{esc group_stats_label(stats)}</span></a></li>"
+      end.join
+      <<~HTML
+        <div class="dropdown">
+          <button type="button" class="dd-toggle" aria-expanded="false" aria-haspopup="true">
+            <span>#{esc group.name}</span>#{CARET}
+          </button>
+          <ul class="dd-menu" role="menu">#{items}</ul>
+        </div>
+      HTML
+    end
+
+    def group_stats_label(stats)
+      parts = ["#{stats["passed"]}/#{stats["total"]} pass"]
+      parts << "#{stats["warned"]} warn" if stats["warned"].to_i.positive?
+      parts << "#{stats["failed"]} fail" if stats["failed"].to_i.positive?
+      parts.join(" \u00b7 ")
+    end
+
     def render(group, summary)
       # Failures are what the report is opened for, warnings next; a fully
       # green report falls back to "all" so the gallery isn't empty on open.
@@ -79,7 +114,7 @@ module Twinshot
         <body data-filter="#{default_filter}" data-mode="side" data-heat="on">
         <header id="topbar">
           <span class="brand">#{LOGO}<b>twinshot</b></span>
-          <span id="gname">#{esc group.name}</span>
+          #{group_selector(group)}
           <span id="stats"><span class="ok">#{summary["passed"]}/#{summary["total"]} pass</span> <span class="wrn">#{summary["warned"].to_i} warn</span> <span class="bad">#{summary["failed"]} fail</span></span>
           <input id="q" type="search" placeholder="search by name…">
           <span class="seg">
@@ -242,7 +277,8 @@ module Twinshot
         "# twinshot — 1:1 parity · group #{@group.name}", "",
         "- oracle: #{@group.oracle_path}",
         "- current: #{@group.current_path}",
-        "- total: #{summary["total"]} · passed: #{summary["passed"]} · warned: #{warned.size} · failed: #{summary["failed"]}",
+        "- total: #{summary["total"]} · passed: #{summary["passed"]}" \
+        " · warned: #{warned.size} · failed: #{summary["failed"]}",
         "",
         "## Failures (#{failed.size})", ""
       ]
@@ -296,6 +332,13 @@ module Twinshot
     # self-contained, no external assets). Cleaned Inkscape export: only the
     # viewBox and the four paths remain. Sized via CSS (.brand svg).
     LOGO = File.read(File.expand_path("logo.svg", __dir__)).strip
+
+    # Bootstrap-icons caret-down-fill, inlined for the same self-contained
+    # reason as LOGO (no external assets). Rotates via CSS while open.
+    CARET = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" ' \
+            'viewBox="0 0 16 16" aria-hidden="true">' \
+            '<path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 ' \
+            '.753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>'
 
     # Radix Colors light theme (radix-ui.com/colors). Steps: 1-2 backgrounds,
     # 3-4 tints, 5-6 borders, 7-8 borders/hover, 9-10 solid fills, 11-12 text.
@@ -375,6 +418,22 @@ module Twinshot
       pre.diff .add{background:var(--green-3);color:var(--green-11)}
       pre.diff .same{color:var(--slate-11)}
       .note{padding:6px 12px;color:var(--slate-11);border-top:1px solid var(--slate-6)}
+      .dropdown{position:relative}
+      .dd-toggle{display:inline-flex;align-items:center;gap:6px;font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--slate-11);background:var(--slate-2);border:1px solid var(--slate-6);padding:2px 8px;border-radius:.375rem;cursor:pointer}
+      .dd-toggle:hover{background:var(--slate-3)}
+      .dd-toggle:focus-visible{outline:0;border-color:var(--blue-8);box-shadow:0 0 0 .25rem var(--blue-a5)}
+      .dd-toggle svg{width:10px;height:10px;display:block;transition:transform .15s ease}
+      .dd-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
+      .dd-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:40;min-width:230px;max-height:70vh;overflow:auto;margin:0;padding:6px;list-style:none;background:#fff;border:1px solid var(--slate-6);border-radius:.5rem;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+      .dd-menu.show{display:block;animation:dd-in .15s ease-in}
+      @keyframes dd-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+      .dd-menu a{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:6px 10px;border-radius:.375rem;color:var(--slate-12);text-decoration:none;font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .dd-menu a:hover,.dd-menu a:focus-visible{background:var(--blue-4);color:var(--blue-12);outline:0}
+      .dd-menu a.active{background:var(--blue-9);color:#fff}
+      .dd-menu a.active:hover,.dd-menu a.active:focus-visible{background:var(--blue-10);color:#fff}
+      .dd-menu .dd-stats{font:600 11px system-ui,sans-serif;color:var(--slate-11);white-space:nowrap}
+      .dd-menu a.active .dd-stats{color:#fff}
+      @media (prefers-reduced-motion: reduce){.dd-menu.show{animation:none}.dd-toggle svg{transition:none}}
     CSS
 
     JS = <<~'JS'
@@ -482,6 +541,55 @@ module Twinshot
           }
           var target = e.key === 'n' ? Math.min(current + 1, shots.length - 1) : Math.max(current - 1, 0);
           shots[target].scrollIntoView({ block: 'start' });
+        });
+
+        // Bootstrap-style dropdown (group switcher): toggle on click, close on
+        // outside click / Escape / Tab, ArrowUp/ArrowDown and Home/End move
+        // focus through the menu. Items are links to sibling group reports.
+        document.querySelectorAll('.dropdown').forEach(function (dd) {
+          var toggle = dd.querySelector('.dd-toggle');
+          var menu = dd.querySelector('.dd-menu');
+          var items = Array.prototype.slice.call(menu.querySelectorAll('a'));
+
+          function open(focusIndex) {
+            dd.classList.add('show');
+            menu.classList.add('show');
+            toggle.setAttribute('aria-expanded', 'true');
+            if (typeof focusIndex === 'number' && items[focusIndex]) items[focusIndex].focus();
+          }
+
+          function close(refocus) {
+            dd.classList.remove('show');
+            menu.classList.remove('show');
+            toggle.setAttribute('aria-expanded', 'false');
+            if (refocus) toggle.focus();
+          }
+
+          toggle.addEventListener('click', function () {
+            if (menu.classList.contains('show')) { close(); } else { open(0); }
+          });
+
+          document.addEventListener('click', function (e) {
+            if (menu.classList.contains('show') && !dd.contains(e.target)) close();
+          });
+
+          toggle.addEventListener('keydown', function (e) {
+            if (!menu.classList.contains('show') &&
+                (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              e.preventDefault();
+              open(e.key === 'ArrowDown' ? 0 : items.length - 1);
+            }
+          });
+
+          menu.addEventListener('keydown', function (e) {
+            var i = items.indexOf(document.activeElement);
+            if (e.key === 'Escape') { e.stopPropagation(); close(true); }
+            else if (e.key === 'ArrowDown') { e.preventDefault(); items[Math.min(i + 1, items.length - 1)].focus(); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); items[Math.max(i - 1, 0)].focus(); }
+            else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+            else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+            else if (e.key === 'Tab') close();
+          });
         });
 
         search.addEventListener('input', apply);

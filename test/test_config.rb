@@ -61,20 +61,23 @@ class TestConfig < Minitest::Test
     end
   end
 
-  def test_soft_check_lists_exact_paths
+  def test_soft_check_matches_exact_paths_and_globs
     Dir.mktmpdir do |dir|
       config = Twinshot::Config.load(write_config(dir, <<~YAML))
         oracle: {path: o}
         current: {path: c}
         soft_check:
           - dashboard/header.png
-          - analytics/main.png
+          - code/capybara-tests/*
       YAML
-      assert_equal ["dashboard/header.png", "analytics/main.png"], config.soft_check
-      assert config.soft_check?("dashboard/header.png")
-      assert config.soft_check?("analytics/main.png")
+      assert_equal ["dashboard/header.png", "code/capybara-tests/*"], config.soft_check
+      assert config.soft_check?("dashboard/header.png") # exact path
+      assert config.soft_check?("code/capybara-tests/run.code.txt")
+      assert config.soft_check?("code/capybara-tests/tests/01_auth_test.code.txt") # * crosses /
+      assert config.soft_check?("code/capybara-tests/.gitignore.code.txt") # dotfiles match *
       refute config.soft_check?("dashboard/other.png")
       refute config.soft_check?("dashboard") # folders are not file paths
+      refute config.soft_check?("code/docs/readme.code.txt") # sibling subtree
     end
   end
 

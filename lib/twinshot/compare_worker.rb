@@ -18,6 +18,7 @@
 
 require "json"
 require_relative "adapters"
+require_relative "soft_check"
 
 payload = JSON.parse($stdin.read)
 ctx = Twinshot::Adapters::Ctx.new(max_diff_ratio: payload.fetch("max_diff_ratio"),
@@ -34,9 +35,10 @@ payload.fetch("rels").each_with_index do |rel, i|
   next unless i % workers == index
 
   result = begin
-    Twinshot::Adapters.for(rel).call(rel, File.join(oracle, rel), File.join(current, rel), ctx)
-                      .tap { |r| r["status"] = "warn" if r["status"] == "fail" && soft_check.include?(rel) }
-                      .merge("rel" => rel, "group" => group)
+    r = Twinshot::Adapters.for(rel).call(rel, File.join(oracle, rel), File.join(current, rel), ctx)
+                          .merge("rel" => rel, "group" => group)
+    r["status"] = "warn" if r["status"] == "fail" && Twinshot::SoftCheck.match?(soft_check, rel)
+    r
   rescue StandardError => e
     { "group" => group, "rel" => rel, "kind" => "error", "status" => "fail",
       "detail" => "#{e.class}: #{e.message}" }

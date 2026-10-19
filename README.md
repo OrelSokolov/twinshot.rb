@@ -62,9 +62,10 @@ current:
 png:
   max_diff_ratio: 0.002           # optional, default 0.002 (applies to all groups)
 
-soft_check:                       # optional: exact tree-relative file paths
-  - dashboard/header.png          # whose content diffs are tolerated (clocks,
-                                   # dates…) — reported as warnings, exit code stays 0
+soft_check:                       # optional: exact tree-relative paths or globs
+  - dashboard/header.png          # diffs tolerated (clocks, dates…); missing/
+  - code/capybara-tests/*         # extra files on one side — all warnings,
+                                   # exit code stays 0
 
 # optional: named groups — additional tree pairs with the same fields
 # (path + generate per side). Any names work.
@@ -78,11 +79,11 @@ groups:
 ```
 
 The top-level `oracle`/`current` pair is the unnamed **default group**;
-`compare` runs every group in order, and `groups` in the yaml adds named ones
-(the name `default` is reserved). There is nothing special about an
-"API-style" group: if you need to compare not just the output but the input
-too, simply put the input artifacts into the group's trees — they are
-compared by the same adapters.
+`compare` runs every group in order (or just one — `compare dogs`), and
+`groups` in the yaml adds named ones (the name `default` is reserved).
+There is nothing special about an "API-style" group: if you need to compare
+not just the output but the input too, simply put the input artifacts into
+the group's trees — they are compared by the same adapters.
 
 Every group writes its report into its own folder:
 `<config dir>/twinshot-report/<group>/` — the default group reports into
@@ -90,37 +91,44 @@ Every group writes its report into its own folder:
 `report_for_human.html`, `report_for_agent.md`, `summary.json`, `diffs/`.
 Not configurable.
 
-Paths listed in `soft_check` (exact tree-relative paths, the same list for
-every group) are snapshots whose content is allowed to differ — typically
-screenshots with a clock or other dynamic content. Their diffs come back as
-**warnings**: fully visible in both reports and counted separately, but they
-never change the exit code. Structure problems (missing/extra files) are
-never softened.
+Entries in `soft_check` (the same list for every group) are exact
+tree-relative paths or glob patterns. They are snapshots whose content is
+allowed to differ — typically screenshots with a clock or other dynamic
+content — and files that may legitimately exist on only one side of the
+trees. Globs match nested files and dotfiles (`*` crosses `/`):
+`code/capybara-tests/*` covers the entire subtree. Everything a listed path
+produces is a **warning** (`!` in yellow in the run output): a content diff
+when it exists on both sides, or a missing/extra structure result when it
+exists on only one. Warnings are fully visible in both reports and counted
+separately, but they never change the exit code.
 
 ## Commands
 
 ```
-twinshot compare [-c PATH] [-j N] [--json] [--[no-]open]  # compare all groups, write reports
-twinshot generate [-g NAME|all] [oracle|current]  # run generate commands
+twinshot compare [GROUP|all] [-c PATH] [-j N] [--json] [--[no-]open]  # compare, write reports
+twinshot generate [GROUP|all|SIDE][:oracle|current]  # run generate commands
 twinshot help [COMMAND]                      # help
 ```
 
 - `compare` in the happy case needs no generation — it takes the folders as
-  they are.
+  they are. `GROUP` (a group name, `all` by default) selects what runs:
+  `compare dogs` compares only that group and writes only its report;
+  `compare all` — every configured group.
 - `-j N` — worker pool (forks, default: core count, capped at 8): the
   structure is checked synchronously, files in parallel.
-- After `compare`, the default group's report opens in a browser: on a tty —
-  automatically, `--open` — force it (even with `--json`), `--no-open` —
-  disable. Cross-platform "open" (`Twinshot::Opener`): darwin — `open`,
-  windows — `start` via `cmd /c`, linux/BSD — `xdg-open`; a failed launch
-  does not affect the exit code.
-- `generate` without a side regenerates **every configured tree** — all
-  groups, `oracle` then `current`, sequentially — and announces the list
-  first: `Generate:` followed by `group/side` for each target. With a side
-  (`generate oracle|current`) it stays single-tree: the default group unless
-  `-g`; `-g dogs` — a named one, `-g all` — runs the side's command in every
-  group where it is configured. A failing command doesn't stop the rest, but
-  the exit code reports it.
+- After `compare`, the first compared group's report opens in a browser: on
+  a tty — automatically, `--open` — force it (even with `--json`),
+  `--no-open` — disable. Cross-platform "open" (`Twinshot::Opener`): darwin
+  — `open`, windows — `start` via `cmd /c`, linux/BSD — `xdg-open`; a failed
+  launch does not affect the exit code.
+- `generate` takes a `GROUP:SIDE` selector: `generate dogs:oracle` — one
+  tree of a named group; a bare side (`generate oracle`, same as
+  `default:oracle`) — the default group's tree (no namespace means
+  default); `generate dogs` — both trees of one group; `generate all` /
+  `all:oracle` / no selector — every configured tree of every group (one
+  side or both), announced as a `Generate:` list first. A failing command
+  doesn't stop the rest, but the exit code reports it. The words `all`,
+  `oracle` and `current` are reserved and cannot be group names.
 - Exit codes: `0` — everything matched, `1` — differences found (fits
   `git bisect run` and CI), `2` — config/usage error. `soft_check` warnings
   never affect the exit code.

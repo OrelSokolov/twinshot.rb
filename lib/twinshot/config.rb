@@ -2,6 +2,8 @@
 
 require "yaml"
 
+require_relative "soft_check"
+
 module Twinshot
   # Minimal twinshot.yml:
   #
@@ -135,25 +137,29 @@ module Twinshot
       raise Error, "png.max_diff_ratio must be a number, got: #{value.inspect}"
     end
 
-    # Exact tree-relative file paths (the same list applies to every group)
-    # whose content diffs are tolerated — snapshots with a clock, dates or
-    # other dynamic content. Their diffs come back as "warn": shown and
-    # counted in the reports, but they never fail the run. Structure
-    # problems (missing/extra files) are never softened.
+    # Exact tree-relative file paths or glob patterns (the same list applies
+    # to every group) whose diffs are tolerated — snapshots with a clock,
+    # dates or other dynamic content, and files that may legitimately exist
+    # on only one side. Content diffs come back as "warn": shown and counted
+    # in the reports, but they never fail the run. Missing/extra structure
+    # results are warns too. Glob entries ("code/capybara-tests/*") match
+    # nested files and dotfiles — see SoftCheck.
     def soft_check
       paths = case @data["soft_check"]
               when nil then []
               when Array then @data["soft_check"]
-              else raise Error, "soft_check must be a list of file paths, got: #{@data["soft_check"].inspect}"
+              else raise Error,
+                         "soft_check must be a list of paths or glob patterns, got: #{@data["soft_check"].inspect}"
               end
       unless paths.all? { |path| path.is_a?(String) && !path.empty? }
-        raise Error, "soft_check entries must be non-empty file paths"
+        raise Error, "soft_check entries must be non-empty paths or glob patterns"
       end
+
       paths
     end
 
     def soft_check?(rel)
-      soft_check.include?(rel)
+      SoftCheck.match?(soft_check, rel)
     end
 
     def report_root
@@ -183,6 +189,9 @@ module Twinshot
         end
         if name == DEFAULT_GROUP
           raise Error, "group name #{DEFAULT_GROUP.inspect} is reserved for the unnamed top-level group"
+        end
+        if name == "all" || SIDES.include?(name)
+          raise Error, "group name #{name.inspect} is reserved by the CLI selectors (all, oracle, current)"
         end
 
         Group.new(name, data, @root, File.basename(@path), "groups.#{name}")
