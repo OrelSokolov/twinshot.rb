@@ -153,7 +153,12 @@ Two files per group folder:
     squares, a square's opacity grows with the share of differing pixels (`heat`
     metadata in `summary.json`, a toolbar toggle);
   - inline text diffs (`+/-` lines);
-  - `n`/`p` keys — navigate shots, `Esc` — reset search.
+  - `n`/`p` keys — navigate shots, `Esc` — reset search;
+  - **ignore file** — a toggle in the top-right of every card title collects
+    files into an ignore list (kept in `localStorage`, shared across group
+    reports); the topbar `COPY FILES TO IGNORE` button copies it as a
+    `soft_check:` block ready to paste into `twinshot.yml` — those files then
+    stop failing the run (their diffs become warnings).
 - `report_for_agent.md` — the same results as markdown to feed to a model:
   every failed file gets a section with its metadata (absolute oracle/current
   paths, kind, detail, ratio, diff-image path) plus the divergence snippet as a

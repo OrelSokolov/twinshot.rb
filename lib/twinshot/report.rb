@@ -11,9 +11,11 @@ module Twinshot
   # - report_for_human.html — self-contained HTML gallery: 1:1 gallery (flat,
   #   ordered by directory), with search, a bootstrap-style group switcher
   #   dropdown, status filters (failures shown by default), image compare
-  #   modes (side-by-side / slider / blink) and per-side copy buttons
-  #   (absolute snapshot path — handy to paste into an agent). CSS and JS
-  #   are inlined; screenshots referenced by relative paths.
+  #   modes (side-by-side / slider / blink), per-side copy buttons
+  #   (absolute snapshot path — handy to paste into an agent) and per-shot
+  #   "ignore file" toggles that collect paths for the topbar COPY FILES
+  #   TO IGNORE button (copies a soft_check: block for twinshot.yml).
+  #   CSS and JS are inlined; screenshots referenced by relative paths.
   #   Theme built on Radix Colors (radix-ui.com/colors), light scales:
   #   slate neutrals, blue accent, red danger, green success. Each step
   #   has a fixed role (1-2 backgrounds, 3-6 borders/tints, 9 solid
@@ -126,6 +128,7 @@ module Twinshot
           <span class="seg">
             <button type="button" data-h="on" class="active" aria-pressed="true">zones</button>
           </span>
+          <button type="button" id="copy-ignore" data-label="COPY FILES TO IGNORE">COPY FILES TO IGNORE</button>
           <span class="hint">n/p — navigate · ⧉ — copy path</span>
         </header>
         #{gallery(summary)}
@@ -161,7 +164,7 @@ module Twinshot
                     ""
                   end
       "<div class=\"shot #{result["status"]}\" data-name=\"#{esc rel}\">" \
-        "<h3>#{esc rel}<span class=\"badge\">#{esc result["kind"]}</span>#{copy_buttons(result)}#{diff_link} " \
+        "<h3>#{ignore_button(rel)}#{esc rel}<span class=\"badge\">#{esc result["kind"]}</span>#{copy_buttons(result)}#{diff_link} " \
         "<span class=\"detail\">#{esc result["detail"]}</span></h3>" \
         "#{body}</div>"
     end
@@ -186,6 +189,15 @@ module Twinshot
 
     def copy_button(label, path)
       %(<button type="button" class="copy" data-copy="#{esc path}" data-label="⧉ #{label}">⧉ #{label}</button>)
+    end
+
+    # Floated to the top-right of every shot title: toggles the file into the
+    # ignore list (JS keeps it in localStorage under one shared key, so it
+    # survives reloads and carries across group reports). The topbar
+    # COPY FILES TO IGNORE button copies the collected paths as a
+    # soft_check: block ready to paste into twinshot.yml.
+    def ignore_button(rel)
+      %(<button type="button" class="ign" data-ign="#{esc rel}" aria-pressed="false">ignore file</button>)
     end
 
     def image_pair(result)
@@ -386,6 +398,14 @@ module Twinshot
       .copy{font:600 11px system-ui,sans-serif;color:var(--slate-11);background:#fff;border:1px solid var(--slate-6);border-radius:.375rem;padding:1px 7px;cursor:pointer;margin-left:6px;vertical-align:1px}
       .copy:hover{background:var(--slate-2)}
       .copy.done{background:var(--green-9);border-color:var(--green-9);color:#fff}
+      .ign{float:right;font:600 11px system-ui,sans-serif;color:var(--slate-11);background:#fff;border:1px solid var(--slate-6);border-radius:.375rem;padding:1px 7px;cursor:pointer;margin-left:6px;vertical-align:1px}
+      .ign:hover{background:var(--slate-2)}
+      .ign[aria-pressed=true]{background:var(--amber-9);border-color:var(--amber-9);color:#fff}
+      .shot.ignored{opacity:.5}
+      #copy-ignore{font:inherit;font-weight:500;color:var(--slate-12);background:#fff;border:1px solid var(--slate-6);border-radius:.375rem;padding:4px 12px;cursor:pointer}
+      #copy-ignore:hover{background:var(--slate-3)}
+      #copy-ignore:focus-visible{outline:0;box-shadow:0 0 0 .25rem var(--blue-a5)}
+      #copy-ignore.done{background:var(--green-9);border-color:var(--green-9);color:#fff}
       .pair{display:flex;--cut:50%}
       body[data-mode=slider] .pair,body[data-mode=blink] .pair{display:block;position:relative}
       .pair figure{flex:1 1 50%;min-width:0;margin:0}
@@ -520,6 +540,58 @@ module Twinshot
           var btn = e.target.closest ? e.target.closest('button.copy') : null;
           if (btn) copyText(btn.dataset.copy, btn);
         });
+
+        // Ignore list: "ignore file" toggles in shot titles collect
+        // tree-relative paths into one array (persisted in localStorage under
+        // a single key, so it survives reloads and carries across group
+        // reports). The topbar COPY FILES TO IGNORE button copies them as a
+        // soft_check: block ready to paste into twinshot.yml.
+        var IGNORE_KEY = 'twinshot.ignore';
+        var ignored = [];
+        try {
+          var stored = JSON.parse(localStorage.getItem(IGNORE_KEY));
+          if (Object.prototype.toString.call(stored) === '[object Array]') ignored = stored;
+        } catch (e) {}
+
+        var ignoreBtn = document.getElementById('copy-ignore');
+
+        function saveIgnored() {
+          try { localStorage.setItem(IGNORE_KEY, JSON.stringify(ignored)); } catch (e) {}
+        }
+
+        function syncIgnored() {
+          document.querySelectorAll('button.ign').forEach(function (b) {
+            var on = ignored.indexOf(b.dataset.ign) >= 0;
+            b.setAttribute('aria-pressed', String(on));
+            b.textContent = on ? 'ignored' : 'ignore file';
+            b.closest('.shot').classList.toggle('ignored', on);
+          });
+          if (ignoreBtn) {
+            ignoreBtn.textContent = ignored.length
+              ? 'COPY FILES TO IGNORE (' + ignored.length + ')'
+              : ignoreBtn.dataset.label;
+          }
+        }
+
+        document.addEventListener('click', function (e) {
+          var btn = e.target.closest ? e.target.closest('button.ign') : null;
+          if (!btn) return;
+          var rel = btn.dataset.ign;
+          var i = ignored.indexOf(rel);
+          if (i >= 0) { ignored.splice(i, 1); } else { ignored.push(rel); }
+          saveIgnored();
+          syncIgnored();
+        });
+
+        if (ignoreBtn) {
+          ignoreBtn.addEventListener('click', function () {
+            if (!ignored.length) return;
+            var text = 'soft_check:\n' +
+              ignored.map(function (p) { return '  - ' + p; }).join('\n') + '\n';
+            copyText(text, ignoreBtn);
+          });
+        }
+        syncIgnored();
 
         function visibleShots() {
           return Array.prototype.slice.call(document.querySelectorAll('.shot')).filter(function (s) {
