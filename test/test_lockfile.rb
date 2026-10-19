@@ -26,7 +26,7 @@ class TestLockfile < Minitest::Test
   def test_live_pid_is_refused
     Dir.mktmpdir do |tmp|
       write_lock(tmp, Process.pid) # our own pid is definitely alive
-      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) { } }
+      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) {} }
       assert_includes error.message, "already active (pid #{Process.pid},"
       assert_equal Process.pid.to_s, File.read(File.join(tmp, "tmp", "twinshot.pid"))
     end
@@ -35,7 +35,7 @@ class TestLockfile < Minitest::Test
   def test_dead_pid_is_reported_as_leftover
     Dir.mktmpdir do |tmp|
       write_lock(tmp, dead_pid)
-      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) { } }
+      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) {} }
       assert_includes error.message, "that process is not running"
       assert_includes error.message, "remove tmp/twinshot.pid manually"
     end
@@ -44,7 +44,7 @@ class TestLockfile < Minitest::Test
   def test_unreadable_pid_is_reported_as_leftover
     Dir.mktmpdir do |tmp|
       write_lock(tmp, "not a pid")
-      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) { } }
+      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) {} }
       assert_includes error.message, "no readable pid"
     end
   end
@@ -52,7 +52,7 @@ class TestLockfile < Minitest::Test
   def test_nonpositive_pid_is_reported_as_leftover
     Dir.mktmpdir do |tmp|
       write_lock(tmp, 0) # kill(0, 0) would target the process group, not a process
-      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) { } }
+      error = assert_raises(Twinshot::Lockfile::Error) { Twinshot::Lockfile.under(fake_config(tmp)) {} }
       assert_includes error.message, "no readable pid"
     end
   end

@@ -66,10 +66,12 @@ module Twinshot
       pid = Integer(File.read(@path).strip, 10)
       raise ArgumentError if pid <= 0 # a real process pid is always positive
 
-      return "another twinshot run is already active (pid #{pid}, see #{RELATIVE_PATH}) — wait for it to finish" if alive?(pid)
-
-      "#{RELATIVE_PATH} holds pid #{pid}, but that process is not running — " \
-        "it may be left over from a crashed run; remove #{RELATIVE_PATH} manually and try again"
+      if alive?(pid)
+        "another twinshot run is already active (pid #{pid}, see #{RELATIVE_PATH}) — wait for it to finish"
+      else
+        "#{RELATIVE_PATH} holds pid #{pid}, but that process is not running — " \
+          "it may be left over from a crashed run; remove #{RELATIVE_PATH} manually and try again"
+      end
     rescue Errno::ENOENT, ArgumentError
       "#{RELATIVE_PATH} exists but holds no readable pid — " \
         "it may be left over from a crashed run; remove #{RELATIVE_PATH} manually and try again"

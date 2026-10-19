@@ -396,7 +396,8 @@ module Twinshot
       when "compare", "review"
         # Only the first positional is a group name (or 'all'); after that —
         # and for a bogus word — just the options.
-        positionals(typed).empty? ? group_candidates(typed) | parser_flags(compare_parser) : parser_flags(compare_parser)
+        flags = parser_flags(compare_parser)
+        positionals(typed).empty? ? group_candidates(typed) | flags : flags
       when "generate"
         flags = parser_flags(generate_parser)
         if positionals(typed).empty?
